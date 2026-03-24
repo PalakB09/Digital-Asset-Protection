@@ -1,0 +1,50 @@
+from datetime import datetime
+from uuid import uuid4
+from sqlalchemy import Column, String, Float, DateTime, ForeignKey
+from app.database import Base
+
+
+class Violation(Base):
+    __tablename__ = "violations"
+
+    id = Column(String, primary_key=True, default=lambda: str(uuid4()))
+    asset_id = Column(String, ForeignKey("assets.id"), nullable=False)
+    source_url = Column(String, default="upload")
+    platform = Column(String, default="unknown")
+    confidence = Column(Float, nullable=False)
+    match_tier = Column(String, nullable=False)  # HIGH or MEDIUM
+    match_type = Column(String, nullable=False)   # phash or clip
+    image_path = Column(String, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    def to_dict(self):
+        return {
+            "id": self.id,
+            "asset_id": self.asset_id,
+            "source_url": self.source_url,
+            "platform": self.platform,
+            "confidence": self.confidence,
+            "match_tier": self.match_tier,
+            "match_type": self.match_type,
+            "image_path": self.image_path,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+        }
+
+
+class PropagationEdge(Base):
+    __tablename__ = "propagation_edges"
+
+    id = Column(String, primary_key=True, default=lambda: str(uuid4()))
+    source_asset_id = Column(String, ForeignKey("assets.id"), nullable=False)
+    violation_id = Column(String, ForeignKey("violations.id"), nullable=False)
+    platform = Column(String, default="unknown")
+    discovered_at = Column(DateTime, default=datetime.utcnow)
+
+    def to_dict(self):
+        return {
+            "id": self.id,
+            "source_asset_id": self.source_asset_id,
+            "violation_id": self.violation_id,
+            "platform": self.platform,
+            "discovered_at": self.discovered_at.isoformat() if self.discovered_at else None,
+        }

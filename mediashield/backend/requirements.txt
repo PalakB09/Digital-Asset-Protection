@@ -1,0 +1,14 @@
+fastapi
+uvicorn[standard]
+python-multipart
+sqlalchemy
+aiosqlite
+imagehash
+Pillow
+numpy
+transformers
+torch
+torchvision
+chromadb
+fpdf2
+python-dotenv

@@ -1,0 +1,21 @@
+# Local files
+digital_asset_protection_strategy.md
+
+# Virtual Environment
+**/venv/
+**/__pycache__/
+**/*.pyc
+
+# Node Modules
+**/node_modules/
+
+# Next.js
+**/.next/
+
+# Environment Variables
+**/.env
+**/.env.local
+
+# Databases
+**/*.db
+**/storage/

@@ -1,0 +1,140 @@
+"""
+DMCA service — generates takedown notice PDFs using fpdf2.
+"""
+
+import os
+from datetime import datetime
+from fpdf import FPDF
+from sqlalchemy.orm import Session
+
+from app.config import DMCA_DIR, UPLOAD_DIR, VIOLATION_DIR
+from app.models.asset import Asset
+from app.models.violation import Violation
+
+
+def generate_dmca_pdf(violation_id: str, db: Session) -> str:
+    """
+    Generate a DMCA takedown notice PDF for a given violation.
+    
+    Returns the file path to the generated PDF.
+    """
+    # Fetch violation and related asset
+    violation = db.query(Violation).filter(Violation.id == violation_id).first()
+    if not violation:
+        raise ValueError(f"Violation {violation_id} not found")
+
+    asset = db.query(Asset).filter(Asset.id == violation.asset_id).first()
+    if not asset:
+        raise ValueError(f"Asset {violation.asset_id} not found")
+
+    # Create PDF
+    pdf = FPDF()
+    pdf.set_auto_page_break(auto=True, margin=15)
+    pdf.add_page()
+
+    # --- Header ---
+    pdf.set_font("Helvetica", "B", 20)
+    pdf.set_text_color(180, 30, 30)
+    pdf.cell(0, 15, "DMCA TAKEDOWN NOTICE", ln=True, align="C")
+    pdf.ln(5)
+
+    # Separator line
+    pdf.set_draw_color(180, 30, 30)
+    pdf.set_line_width(0.5)
+    pdf.line(10, pdf.get_y(), 200, pdf.get_y())
+    pdf.ln(8)
+
+    # --- Section 1: Notice Info ---
+    pdf.set_font("Helvetica", "B", 12)
+    pdf.set_text_color(0, 0, 0)
+    pdf.cell(0, 8, "Notice Information", ln=True)
+    pdf.set_font("Helvetica", "", 10)
+    pdf.cell(0, 6, f"Generated: {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S UTC')}", ln=True)
+    pdf.cell(0, 6, f"Notice ID: DMCA-{violation.id[:8].upper()}", ln=True)
+    pdf.ln(5)
+
+    # --- Section 2: Original Work ---
+    pdf.set_font("Helvetica", "B", 12)
+    pdf.cell(0, 8, "Original Copyrighted Work", ln=True)
+    pdf.set_font("Helvetica", "", 10)
+    pdf.cell(0, 6, f"Asset Name: {asset.name}", ln=True)
+    pdf.cell(0, 6, f"Asset ID: {asset.id}", ln=True)
+    pdf.cell(0, 6, f"Registration Date: {asset.created_at.strftime('%Y-%m-%d %H:%M:%S UTC') if asset.created_at else 'N/A'}", ln=True)
+
+    # Embed original image if exists
+    original_path = os.path.join(str(UPLOAD_DIR), os.path.basename(asset.original_path))
+    if os.path.exists(original_path):
+        pdf.ln(3)
+        pdf.cell(0, 6, "Original Image:", ln=True)
+        try:
+            pdf.image(original_path, x=15, w=80)
+            pdf.ln(3)
+        except Exception:
+            pdf.cell(0, 6, "[Image could not be embedded]", ln=True)
+
+    pdf.ln(5)
+
+    # --- Section 3: Infringing Material ---
+    pdf.set_font("Helvetica", "B", 12)
+    pdf.cell(0, 8, "Infringing Material", ln=True)
+    pdf.set_font("Helvetica", "", 10)
+    pdf.cell(0, 6, f"Source: {violation.source_url}", ln=True)
+    pdf.cell(0, 6, f"Platform: {violation.platform}", ln=True)
+    pdf.cell(0, 6, f"Detection Date: {violation.created_at.strftime('%Y-%m-%d %H:%M:%S UTC') if violation.created_at else 'N/A'}", ln=True)
+
+    # Embed violation image if exists
+    if violation.image_path:
+        violation_path = os.path.join(str(VIOLATION_DIR), os.path.basename(violation.image_path))
+        if os.path.exists(violation_path):
+            pdf.ln(3)
+            pdf.cell(0, 6, "Detected Infringing Image:", ln=True)
+            try:
+                pdf.image(violation_path, x=15, w=80)
+                pdf.ln(3)
+            except Exception:
+                pdf.cell(0, 6, "[Image could not be embedded]", ln=True)
+
+    pdf.ln(5)
+
+    # --- Section 4: Evidence ---
+    pdf.set_font("Helvetica", "B", 12)
+    pdf.cell(0, 8, "Similarity Evidence", ln=True)
+    pdf.set_font("Helvetica", "", 10)
+    pdf.cell(0, 6, f"Match Method: {violation.match_type.upper()}", ln=True)
+    pdf.cell(0, 6, f"Confidence Tier: {violation.match_tier}", ln=True)
+    pdf.cell(0, 6, f"Similarity Score: {violation.confidence:.2%}", ln=True)
+    pdf.ln(5)
+
+    # --- Section 5: Legal Statement ---
+    pdf.set_font("Helvetica", "B", 12)
+    pdf.cell(0, 8, "Legal Declaration", ln=True)
+    pdf.set_font("Helvetica", "", 9)
+
+    statement = (
+        "I hereby state that I have a good faith belief that the use of the "
+        "copyrighted material described above is not authorized by the copyright "
+        "owner, its agent, or the law. I swear, under penalty of perjury, that "
+        "the information in this notification is accurate and that I am the "
+        "copyright owner or am authorized to act on behalf of the owner of an "
+        "exclusive right that is allegedly infringed."
+    )
+    pdf.multi_cell(0, 5, statement)
+    pdf.ln(10)
+
+    # Signature line
+    pdf.cell(0, 6, "____________________________", ln=True)
+    pdf.cell(0, 6, "Authorized Representative", ln=True)
+    pdf.cell(0, 6, f"Date: {datetime.utcnow().strftime('%Y-%m-%d')}", ln=True)
+
+    # --- Footer ---
+    pdf.ln(10)
+    pdf.set_font("Helvetica", "I", 8)
+    pdf.set_text_color(128, 128, 128)
+    pdf.cell(0, 5, "Generated by MediaShield - Digital Asset Protection System", ln=True, align="C")
+
+    # Save PDF
+    filename = f"dmca_{violation.id[:8]}.pdf"
+    filepath = os.path.join(str(DMCA_DIR), filename)
+    pdf.output(filepath)
+
+    return filepath
