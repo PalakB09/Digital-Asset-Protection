@@ -1,6 +1,6 @@
 from datetime import datetime
 from uuid import uuid4
-from sqlalchemy import Column, String, DateTime
+from sqlalchemy import Column, String, DateTime, Integer
 from app.database import Base
 
 
@@ -13,6 +13,8 @@ class Asset(Base):
     phash = Column(String, index=True, nullable=False)
     embedding_id = Column(String, nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow)
+    asset_type = Column(String, nullable=True, default="image")   # "image" or "video"
+    frame_count = Column(Integer, nullable=True)                   # only for videos
 
     def to_dict(self):
         return {
@@ -22,4 +24,6 @@ class Asset(Base):
             "phash": self.phash,
             "embedding_id": self.embedding_id,
             "created_at": self.created_at.isoformat() if self.created_at else None,
+            "asset_type": self.asset_type,
+            "frame_count": self.frame_count,
         }

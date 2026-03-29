@@ -12,3 +12,4 @@ torchvision
 chromadb
 fpdf2
 python-dotenv
+opencv-python

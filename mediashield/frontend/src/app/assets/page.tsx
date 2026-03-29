@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
-import { registerAsset, listAssets, getAssetImageUrl, type Asset } from "@/lib/api";
+import { registerAsset, registerVideoAsset, listAssets, getAssetImageUrl, type Asset } from "@/lib/api";
 
 export default function AssetsPage() {
   const [assets, setAssets] = useState<Asset[]>([]);
@@ -27,16 +27,23 @@ export default function AssetsPage() {
   }
 
   async function handleUpload(file: File) {
-    if (!file.type.startsWith("image/")) {
-      setMessage({ type: "error", text: "Please upload an image file" });
+    const isVideo = file.type.startsWith("video/");
+    const isImage = file.type.startsWith("image/");
+    if (!isImage && !isVideo) {
+      setMessage({ type: "error", text: "Please upload an image or video file" });
       return;
     }
 
     setUploading(true);
     setMessage(null);
     try {
-      await registerAsset(file);
-      setMessage({ type: "success", text: `"${file.name}" registered successfully! Fingerprints generated.` });
+      if (isVideo) {
+        const res = await registerVideoAsset(file);
+        setMessage({ type: "success", text: `"${file.name}" registered — ${res.frame_count} frames extracted and embedded.` });
+      } else {
+        await registerAsset(file);
+        setMessage({ type: "success", text: `"${file.name}" registered successfully! Fingerprints generated.` });
+      }
       await loadAssets();
     } catch (e) {
       setMessage({ type: "error", text: `Upload failed: ${e}` });
@@ -73,20 +80,20 @@ export default function AssetsPage() {
         onDrop={handleDrop}
         onClick={() => fileRef.current?.click()}
       >
-        <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={handleFileChange} />
+        <input ref={fileRef} type="file" accept="image/*,video/mp4,video/mpeg,video/quicktime,video/webm,video/x-msvideo" className="hidden" onChange={handleFileChange} />
         {uploading ? (
           <div className="flex flex-col items-center gap-3">
             <div className="spinner" style={{ width: 32, height: 32 }}></div>
             <p className="text-sm" style={{ color: "var(--text-secondary)" }}>
-              Generating fingerprints (pHash + CLIP embedding)...
+              Processing... (extracting frames + generating embeddings)
             </p>
           </div>
         ) : (
           <div>
             <p className="text-4xl mb-3">📤</p>
-            <p className="font-semibold mb-1">Drop an image here or click to upload</p>
+            <p className="font-semibold mb-1">Drop an image or video here, or click to upload</p>
             <p className="text-sm" style={{ color: "var(--text-muted)" }}>
-              Supports JPG, PNG, WebP • Generates pHash + CLIP embedding
+              Images: JPG, PNG, WebP • Videos: MP4, MOV, WebM, AVI
             </p>
           </div>
         )}
@@ -109,19 +116,26 @@ export default function AssetsPage() {
         <div className="text-center py-16">
           <p className="text-5xl mb-4">🖼️</p>
           <p className="text-lg font-medium mb-2">No assets registered yet</p>
-          <p className="text-sm" style={{ color: "var(--text-muted)" }}>Upload your first image to start protecting it</p>
+          <p className="text-sm" style={{ color: "var(--text-muted)" }}>Upload your first image or video to start protecting it</p>
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           {assets.map((asset, i) => (
             <div key={asset.id} className="card overflow-hidden animate-fade-in" style={{ animationDelay: `${i * 0.05}s` }}>
-              <div className="aspect-video relative overflow-hidden" style={{ background: "var(--bg-secondary)" }}>
-                <img
-                  src={getAssetImageUrl(asset.id)}
-                  alt={asset.name}
-                  className="w-full h-full object-cover"
-                  loading="lazy"
-                />
+              <div className="aspect-video relative overflow-hidden flex items-center justify-center" style={{ background: "var(--bg-secondary)" }}>
+                {asset.asset_type === "video" ? (
+                  <div className="flex flex-col items-center gap-2">
+                    <p className="text-4xl">🎬</p>
+                    <p className="text-xs" style={{ color: "var(--text-muted)" }}>{asset.frame_count} frames</p>
+                  </div>
+                ) : (
+                  <img
+                    src={getAssetImageUrl(asset.id)}
+                    alt={asset.name}
+                    className="w-full h-full object-cover"
+                    loading="lazy"
+                  />
+                )}
               </div>
               <div className="p-4">
                 <p className="font-semibold text-sm mb-1 truncate">{asset.name}</p>
