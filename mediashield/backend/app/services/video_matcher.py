@@ -21,9 +21,18 @@ from app.config import (
     PHASH_THRESHOLD,
     CLIP_THRESHOLD,
     CLIP_HIGH_THRESHOLD,
+    VIDEO_SHORT_CLIP_MAX_SEC,
+    VIDEO_THRESHOLD_SHORT,
+    CLIP_THRESHOLD_SHORT,
+    VIDEO_HIGH_THRESHOLD_SHORT,
+    CLIP_HIGH_THRESHOLD_SHORT,
 )
 from app.models.asset import Asset
-from app.services.video_fingerprint import compute_video_fingerprint
+from app.services.video_fingerprint import (
+    compute_video_fingerprint,
+    probe_video_metadata,
+    choose_scan_frame_count,
+)
 from app.services import vector_store
 from app.services.matcher import MatchResult
 from app.services.fingerprint import hamming_distance
@@ -31,11 +40,24 @@ from app.services.fingerprint import hamming_distance
 log = logging.getLogger(__name__)
 
 
-def match_video(video_path: str, db: Session, n_frames: int = VIDEO_FRAMES) -> MatchResult:
+def match_video(video_path: str, db: Session, n_frames: int | None = None) -> MatchResult:
     """
     Match a candidate video against all registered video assets.
     Returns MatchResult with best match found (or no match).
+
+    If ``n_frames`` is None, chooses a denser sample count for short clips so
+    small pirated cuts still match a long registered master.
     """
+    total_frames, _fps, duration_sec = probe_video_metadata(video_path)
+    if n_frames is None:
+        n_frames = choose_scan_frame_count(total_frames, duration_sec, VIDEO_FRAMES)
+    log.info(
+        "Video scan: duration≈%.2fs, total_frames=%d, using %d sample frames",
+        duration_sec,
+        total_frames,
+        n_frames,
+    )
+
     # Step 1: Extract candidate frame embeddings (+ middle-frame pHash, same as registration)
     try:
         candidate_embeddings, candidate_phash, _ = compute_video_fingerprint(
@@ -80,7 +102,8 @@ def match_video(video_path: str, db: Session, n_frames: int = VIDEO_FRAMES) -> M
     # Build: asset_id -> list of per-candidate-frame max similarities
     asset_frame_max: dict = {}  # asset_id -> list[float] (one max per candidate frame)
 
-    top_k = 30  # cast a wide net per frame query
+    # Short clips: more indexed neighbors can matter when scores are noisy
+    top_k = 30 if duration_sec >= 12.0 else 60
     for i, frame_emb in enumerate(candidate_embeddings):
         results = vector_store.query_video_frames(frame_emb, top_k=top_k)
         log.info("  Frame %d: got %d results from vector store", i, len(results))
@@ -116,6 +139,10 @@ def match_video(video_path: str, db: Session, n_frames: int = VIDEO_FRAMES) -> M
     best_mean = 0.0
     best_max_frame = 0.0
 
+    short = duration_sec > 0 and duration_sec <= VIDEO_SHORT_CLIP_MAX_SEC
+    vt = VIDEO_THRESHOLD_SHORT if short else VIDEO_THRESHOLD
+    ct = CLIP_THRESHOLD_SHORT if short else CLIP_THRESHOLD
+
     for aid, max_sims in asset_frame_max.items():
         if not max_sims:
             continue
@@ -123,7 +150,7 @@ def match_video(video_path: str, db: Session, n_frames: int = VIDEO_FRAMES) -> M
         max_frame = max(max_sims)
         # Frames with no hit in top-k are treated as 0 in the mean (numerator lacks them).
         effective = max(mean_score, max_frame)
-        passes = mean_score >= VIDEO_THRESHOLD or max_frame >= CLIP_THRESHOLD
+        passes = mean_score >= vt or max_frame >= ct
         if passes and effective > best_effective:
             best_effective = effective
             best_asset_id = aid
@@ -135,8 +162,8 @@ def match_video(video_path: str, db: Session, n_frames: int = VIDEO_FRAMES) -> M
         best_asset_id,
         best_mean,
         best_max_frame,
-        VIDEO_THRESHOLD,
-        CLIP_THRESHOLD,
+        vt,
+        ct,
     )
 
     # Step 4: Threshold (already folded into passes above)
@@ -148,7 +175,8 @@ def match_video(video_path: str, db: Session, n_frames: int = VIDEO_FRAMES) -> M
         return MatchResult(
             matched=False,
             details=(
-                f"No video pass: need mean-of-max ≥ {VIDEO_THRESHOLD} or best frame ≥ {CLIP_THRESHOLD}. "
+                f"No video pass: need mean-of-max ≥ {vt} or best frame ≥ {ct} "
+                f"({'short-clip' if short else 'default'} thresholds). "
                 f"(Best across assets: mean={top_mean:.4f}, single-frame={top_frame:.4f})"
             ),
         )
@@ -159,7 +187,10 @@ def match_video(video_path: str, db: Session, n_frames: int = VIDEO_FRAMES) -> M
     if not asset:
         return MatchResult(matched=False, details="Matched asset not found in DB")
 
-    high = best_mean >= VIDEO_HIGH_THRESHOLD or best_max_frame >= CLIP_HIGH_THRESHOLD
+    if short:
+        high = best_mean >= VIDEO_HIGH_THRESHOLD_SHORT or best_max_frame >= CLIP_HIGH_THRESHOLD_SHORT
+    else:
+        high = best_mean >= VIDEO_HIGH_THRESHOLD or best_max_frame >= CLIP_HIGH_THRESHOLD
     tier = "HIGH" if high else "MEDIUM"
     return MatchResult(
         matched=True,

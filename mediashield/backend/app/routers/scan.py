@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session
 from PIL import Image
 
 from app.database import get_db
-from app.config import VIOLATION_DIR, VIDEO_FRAMES
+from app.config import VIOLATION_DIR
 from app.services.scanner import scan_image
 from app.services.video_matcher import match_video
 
@@ -90,8 +90,8 @@ async def scan_uploaded_video(
     with open(filepath, "wb") as f:
         shutil.copyfileobj(file.file, f)
 
-    # Run video matcher
-    result = match_video(video_path=filepath, db=db, n_frames=VIDEO_FRAMES)
+    # Run video matcher (adaptive frame count for short pirated clips)
+    result = match_video(video_path=filepath, db=db, n_frames=None)
 
     if not result.matched:
         os.remove(filepath)
