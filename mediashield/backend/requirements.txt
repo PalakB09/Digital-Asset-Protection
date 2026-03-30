@@ -12,3 +12,5 @@ torchvision
 chromadb
 fpdf2
 python-dotenv
+yt-dlp
+ffmpeg-python

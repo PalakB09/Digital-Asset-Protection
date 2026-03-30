@@ -5,15 +5,26 @@ Scan router — upload a suspect image and check for matches.
 import os
 import shutil
 from uuid import uuid4
-from fastapi import APIRouter, UploadFile, File, Depends, HTTPException
+from fastapi import APIRouter, UploadFile, File, Depends, HTTPException, WebSocket, WebSocketDisconnect
 from sqlalchemy.orm import Session
 from PIL import Image
 
 from app.database import get_db
 from app.config import VIOLATION_DIR
 from app.services.scanner import scan_image
+from app.services.alerts import alert_manager
 
 router = APIRouter(prefix="/scan", tags=["Scan"])
+
+@router.websocket("/ws/alerts")
+async def websocket_alerts(websocket: WebSocket):
+    await alert_manager.connect(websocket)
+    try:
+        while True:
+            await websocket.receive_text()  # Keep connection alive
+    except WebSocketDisconnect:
+        alert_manager.disconnect(websocket)
+
 
 
 @router.post("")
@@ -59,5 +70,12 @@ async def scan_uploaded_image(
     # If no match, clean up the saved file
     if not result["matched"]:
         os.remove(filepath)
+    else:
+        await alert_manager.broadcast(
+            {
+                "type": "violation_alert",
+                "violation": {k: v for k, v in result.items() if k != "details"},
+            }
+        )
 
     return result

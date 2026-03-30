@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 
 from app.models.violation import Violation, PropagationEdge
 from app.services.matcher import match_image, MatchResult
+from app.services.watermark import extract_watermark
 
 
 def scan_image(
@@ -35,6 +36,13 @@ def scan_image(
             "details": result.details,
         }
 
+    # L3 watermark verification (highest-confidence attribution when present)
+    extracted = extract_watermark(image)
+    watermark_verified = extracted == result.asset_id
+    attribution = extracted if watermark_verified else None
+    match_tier = "VERIFIED" if watermark_verified else result.match_tier
+    match_type = "watermark" if watermark_verified else result.match_type
+
     # Create violation record
     violation_id = str(uuid4())
     violation = Violation(
@@ -43,9 +51,11 @@ def scan_image(
         source_url=source_url,
         platform=platform,
         confidence=result.confidence,
-        match_tier=result.match_tier,
-        match_type=result.match_type,
+        match_tier=match_tier,
+        match_type=match_type,
         image_path=image_path,
+        watermark_verified=watermark_verified,
+        attribution=attribution,
     )
     db.add(violation)
 
@@ -67,7 +77,9 @@ def scan_image(
         "asset_id": result.asset_id,
         "asset_name": result.asset_name,
         "confidence": result.confidence,
-        "match_tier": result.match_tier,
-        "match_type": result.match_type,
+        "match_tier": match_tier,
+        "match_type": match_type,
+        "watermark_verified": watermark_verified,
+        "attribution": attribution,
         "details": result.details,
     }

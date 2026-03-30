@@ -12,6 +12,7 @@ class Asset(Base):
     original_path = Column(String, nullable=False)
     phash = Column(String, index=True, nullable=False)
     embedding_id = Column(String, nullable=False)
+    watermark_key = Column(String, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
 
     def to_dict(self):
@@ -21,5 +22,6 @@ class Asset(Base):
             "original_path": self.original_path,
             "phash": self.phash,
             "embedding_id": self.embedding_id,
+            "watermark_key": self.watermark_key,
             "created_at": self.created_at.isoformat() if self.created_at else None,
         }

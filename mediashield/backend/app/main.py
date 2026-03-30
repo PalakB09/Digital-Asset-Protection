@@ -3,18 +3,22 @@ MediaShield API — FastAPI application entry point.
 """
 
 from contextlib import asynccontextmanager
+import asyncio
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.database import init_db
-from app.routers import assets, scan, violations, graph
+from app.routers import assets, scan, violations, graph, monitoring, webhooks
+from app.services.monitoring import monitoring_worker
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Initialize database on startup."""
     init_db()
+    worker_task = asyncio.create_task(monitoring_worker())
     yield
+    worker_task.cancel()
 
 
 app = FastAPI(
@@ -38,6 +42,8 @@ app.include_router(assets.router, prefix="/api")
 app.include_router(scan.router, prefix="/api")
 app.include_router(violations.router, prefix="/api")
 app.include_router(graph.router, prefix="/api")
+app.include_router(monitoring.router, prefix="/api")
+app.include_router(webhooks.router, prefix="/api")
 
 
 @app.get("/api/health")

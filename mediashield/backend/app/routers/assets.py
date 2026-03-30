@@ -4,6 +4,7 @@ Assets router — register and list original images.
 
 import os
 import shutil
+import hashlib
 from uuid import uuid4
 from fastapi import APIRouter, UploadFile, File, Depends, HTTPException
 from fastapi.responses import FileResponse
@@ -15,6 +16,7 @@ from app.config import UPLOAD_DIR
 from app.models.asset import Asset
 from app.models.violation import Violation
 from app.services.fingerprint import compute_phash, compute_embedding
+from app.services.watermark import embed_watermark
 from app.services import vector_store
 
 router = APIRouter(prefix="/assets", tags=["Assets"])
@@ -46,8 +48,12 @@ async def register_asset(file: UploadFile = File(...), db: Session = Depends(get
         os.remove(filepath)
         raise HTTPException(status_code=400, detail=f"Invalid image file: {str(e)}")
 
-    phash = compute_phash(image)
-    embedding = compute_embedding(image)
+    # Embed ownership watermark at ingestion time.
+    watermarked = embed_watermark(image, payload=asset_id)
+    watermarked.save(filepath)
+
+    phash = compute_phash(watermarked)
+    embedding = compute_embedding(watermarked)
 
     # Store embedding in ChromaDB
     vector_store.add_embedding(asset_id, embedding)
@@ -59,6 +65,7 @@ async def register_asset(file: UploadFile = File(...), db: Session = Depends(get
         original_path=filename,
         phash=phash,
         embedding_id=asset_id,
+        watermark_key=hashlib.sha256(asset_id.encode("utf-8")).hexdigest()[:32],
     )
     db.add(asset)
     db.commit()
