@@ -1,25 +1,29 @@
 "use client";
 
 import { useState, useRef } from "react";
-import { scanImage, getAssetImageUrl, type ScanResult } from "@/lib/api";
+import { scanImage, scanVideo, getAssetImageUrl, type ScanResult } from "@/lib/api";
 
 export default function ScanPage() {
   const [scanning, setScanning] = useState(false);
   const [result, setResult] = useState<ScanResult | null>(null);
   const [dragOver, setDragOver] = useState(false);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [fileType, setFileType] = useState<"image" | "video" | null>(null);
   const [platform, setPlatform] = useState("unknown");
   const fileRef = useRef<HTMLInputElement>(null);
 
   async function handleScan(file: File) {
-    if (!file.type.startsWith("image/")) return;
+    const isVideo = file.type.startsWith("video/");
+    const isImage = file.type.startsWith("image/");
+    if (!isImage && !isVideo) return;
 
     setPreviewUrl(URL.createObjectURL(file));
+    setFileType(isVideo ? "video" : "image");
     setScanning(true);
     setResult(null);
 
     try {
-      const res = await scanImage(file, platform);
+      const res = isVideo ? await scanVideo(file, platform) : await scanImage(file, platform);
       setResult(res);
     } catch (e) {
       setResult({ matched: false, message: `Scan failed: ${e}` });
@@ -44,13 +48,14 @@ export default function ScanPage() {
   function reset() {
     setResult(null);
     setPreviewUrl(null);
+    setFileType(null);
   }
 
   return (
     <div>
       <div className="mb-8">
         <h1 className="text-3xl font-bold mb-2">Scan for Violations</h1>
-        <p style={{ color: "var(--text-secondary)" }}>Upload a suspect image to check if it matches any registered asset</p>
+        <p style={{ color: "var(--text-secondary)" }}>Upload a suspect image or video to check if it matches any registered asset</p>
       </div>
 
       {/* Platform selector */}
@@ -85,20 +90,22 @@ export default function ScanPage() {
         onDrop={handleDrop}
         onClick={() => fileRef.current?.click()}
       >
-        <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={handleFileChange} />
+        <input ref={fileRef} type="file" accept="image/*,video/mp4,video/mpeg,video/quicktime,video/webm,video/x-msvideo" className="hidden" onChange={handleFileChange} />
         {scanning ? (
           <div className="flex flex-col items-center gap-3">
             <div className="spinner" style={{ width: 32, height: 32 }}></div>
             <p className="text-sm" style={{ color: "var(--text-secondary)" }}>
-              Running tiered matching pipeline (pHash → CLIP)...
+              {fileType === "video"
+                ? "Extracting frames and running video similarity search..."
+                : "Running tiered matching pipeline (pHash → CLIP)..."}
             </p>
           </div>
         ) : (
           <div>
             <p className="text-4xl mb-3">🔍</p>
-            <p className="font-semibold mb-1">Drop a suspect image here or click to upload</p>
+            <p className="font-semibold mb-1">Drop a suspect image or video here, or click to upload</p>
             <p className="text-sm" style={{ color: "var(--text-muted)" }}>
-              Image will be checked against all registered assets
+              Images: JPG, PNG, WebP • Videos: MP4, MOV, WebM, AVI
             </p>
           </div>
         )}
@@ -120,7 +127,7 @@ export default function ScanPage() {
                   <div>
                     <p className="text-xl font-bold" style={{ color: "var(--danger)" }}>Match Detected!</p>
                     <p className="text-sm" style={{ color: "var(--text-secondary)" }}>
-                      This image matches a registered asset
+                      This {fileType === "video" ? "video" : "image"} matches a registered asset
                     </p>
                   </div>
                 </div>
@@ -128,11 +135,13 @@ export default function ScanPage() {
                 {/* Side by side comparison */}
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
                   <div>
-                    <p className="text-xs font-semibold mb-2" style={{ color: "var(--text-secondary)" }}>SCANNED IMAGE</p>
+                    <p className="text-xs font-semibold mb-2" style={{ color: "var(--text-secondary)" }}>SCANNED {fileType === "video" ? "VIDEO" : "IMAGE"}</p>
                     <div className="rounded-lg overflow-hidden" style={{ border: "2px solid var(--danger)" }}>
-                      {previewUrl && (
+                      {previewUrl && fileType === "video" ? (
+                        <video src={previewUrl} className="w-full h-48 object-cover" controls muted />
+                      ) : previewUrl ? (
                         <img src={previewUrl} alt="Scanned" className="w-full h-48 object-cover" />
-                      )}
+                      ) : null}
                     </div>
                   </div>
                   <div>
@@ -179,8 +188,13 @@ export default function ScanPage() {
                 <div>
                   <p className="text-xl font-bold" style={{ color: "var(--success)" }}>No Match Found</p>
                   <p className="text-sm" style={{ color: "var(--text-secondary)" }}>
-                    This image does not match any registered asset
+                    This {fileType === "video" ? "video" : "image"} does not match any registered asset
                   </p>
+                  {result.details ? (
+                    <p className="text-xs mt-2 font-mono" style={{ color: "var(--text-muted)" }}>
+                      {result.details}
+                    </p>
+                  ) : null}
                 </div>
               </div>
             )}

@@ -4,6 +4,7 @@ Assets router — register and list original images.
 
 import os
 import shutil
+import tempfile
 import hashlib
 from uuid import uuid4
 from fastapi import APIRouter, UploadFile, File, Depends, HTTPException
@@ -12,12 +13,14 @@ from sqlalchemy.orm import Session
 from PIL import Image
 
 from app.database import get_db
-from app.config import UPLOAD_DIR
+from app.config import UPLOAD_DIR, VIDEO_FRAMES
 from app.models.asset import Asset
 from app.models.violation import Violation
 from app.services.fingerprint import compute_phash, compute_embedding
 from app.services.watermark import embed_watermark
 from app.services import vector_store
+from app.services.video_fingerprint import compute_video_fingerprint
+from app.services.vector_store import add_video_frames
 
 router = APIRouter(prefix="/assets", tags=["Assets"])
 
@@ -120,3 +123,57 @@ async def get_asset_image(asset_id: str, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="Image file not found")
     
     return FileResponse(filepath, media_type="image/jpeg")
+
+
+VIDEO_MIME_TYPES = {"video/mp4", "video/mpeg", "video/quicktime", "video/x-msvideo", "video/webm"}
+
+@router.post("/video")
+async def register_video_asset(file: UploadFile = File(...), db: Session = Depends(get_db)):
+    """
+    Upload and register an original video asset.
+    Extracts VIDEO_FRAMES uniform frames, computes CLIP embeddings for each,
+    stores all frame embeddings in ChromaDB video collection.
+    """
+    if not file.content_type or file.content_type not in VIDEO_MIME_TYPES:
+        raise HTTPException(status_code=400, detail="Only video files are accepted (mp4, mpeg, mov, avi, webm)")
+
+    asset_id = str(uuid4())
+    ext = os.path.splitext(file.filename or "video.mp4")[1] or ".mp4"
+    filename = f"{asset_id}{ext}"
+    filepath = os.path.join(str(UPLOAD_DIR), filename)
+
+    with open(filepath, "wb") as f:
+        shutil.copyfileobj(file.file, f)
+
+    try:
+        embeddings, phash, frame_count = compute_video_fingerprint(filepath, VIDEO_FRAMES)
+    except Exception as e:
+        os.remove(filepath)
+        raise HTTPException(status_code=400, detail=f"Could not process video: {str(e)}")
+
+    # Store all frame embeddings in video collection
+    add_video_frames(asset_id, embeddings)
+
+    # Create DB record (phash = middle frame, asset_type = "video")
+    asset = Asset(
+        id=asset_id,
+        name=file.filename or "unnamed",
+        original_path=filename,
+        phash=phash,
+        embedding_id=asset_id,
+        asset_type="video",
+        frame_count=frame_count,
+    )
+    db.add(asset)
+    db.commit()
+    db.refresh(asset)
+
+    return {
+        "id": asset.id,
+        "name": asset.name,
+        "phash": asset.phash,
+        "asset_type": "video",
+        "frame_count": frame_count,
+        "created_at": asset.created_at.isoformat() if asset.created_at else None,
+        "message": f"Video asset registered with {frame_count} frames",
+    }

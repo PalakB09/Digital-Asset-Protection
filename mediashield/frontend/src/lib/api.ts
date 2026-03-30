@@ -8,6 +8,8 @@ export interface Asset {
   embedding_id: string;
   created_at: string;
   violation_count: number;
+  asset_type?: string;
+  frame_count?: number;
 }
 
 export interface Violation {
@@ -96,6 +98,17 @@ export function getAssetImageUrl(id: string): string {
   return `${API_BASE}/assets/${id}/image`;
 }
 
+export async function registerVideoAsset(file: File): Promise<Asset> {
+  const formData = new FormData();
+  formData.append("file", file);
+  const res = await fetch(`${API_BASE}/assets/video`, {
+    method: "POST",
+    body: formData,
+  });
+  if (!res.ok) throw new Error(await res.text());
+  return res.json();
+}
+
 // ─── Scan ──────────────────────────────────────────────────────
 
 export async function scanImage(file: File, platform?: string): Promise<ScanResult> {
@@ -104,6 +117,20 @@ export async function scanImage(file: File, platform?: string): Promise<ScanResu
   const params = new URLSearchParams();
   if (platform) params.append("platform", platform);
   const url = `${API_BASE}/scan${params.toString() ? "?" + params.toString() : ""}`;
+  const res = await fetch(url, {
+    method: "POST",
+    body: formData,
+  });
+  if (!res.ok) throw new Error(await res.text());
+  return res.json();
+}
+
+export async function scanVideo(file: File, platform?: string): Promise<ScanResult> {
+  const formData = new FormData();
+  formData.append("file", file);
+  const params = new URLSearchParams();
+  if (platform) params.append("platform", platform);
+  const url = `${API_BASE}/scan/video${params.toString() ? "?" + params.toString() : ""}`;
   const res = await fetch(url, {
     method: "POST",
     body: formData,
