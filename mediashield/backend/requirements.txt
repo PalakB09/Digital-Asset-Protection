@@ -15,3 +15,5 @@ python-dotenv
 opencv-python
 yt-dlp
 ffmpeg-python
+playwright
+httpx

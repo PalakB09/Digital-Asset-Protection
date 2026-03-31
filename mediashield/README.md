@@ -49,12 +49,38 @@ source venv/bin/activate
 # Install dependencies
 pip install -r requirements.txt
 
+# Install Playwright browser runtime (required for discovery worker)
+python -m playwright install chromium
+
 # Run API
 python -m uvicorn app.main:app --host 0.0.0.0 --port 8000
 ```
 
 API: `http://localhost:8000`
 Swagger: `http://localhost:8000/docs`
+
+### Discovery Worker (Playwright Polling)
+
+This worker periodically scrapes configured pages and pushes discovered post events
+to `/api/monitoring/events` automatically.
+
+```bash
+cd mediashield/backend
+
+# One-time setup: copy and edit target config
+cp workers/discovery_targets.example.json workers/discovery_targets.json
+
+# Optional environment overrides
+export MEDIASHIELD_MONITORING_ENDPOINT="http://localhost:8000/api/monitoring/events"
+export MEDIASHIELD_POLL_INTERVAL_SEC=15
+
+# Run worker
+python workers/playwright_discovery_worker.py
+```
+
+Default files used by the worker:
+- Targets: `backend/workers/discovery_targets.json`
+- Seen-post cache: `backend/workers/.seen_posts.json`
 
 ### Frontend
 

@@ -139,6 +139,18 @@ export async function scanVideo(file: File, platform?: string): Promise<ScanResu
   return res.json();
 }
 
+export async function scanByUrl(sourceUrl: string, platform?: string): Promise<ScanResult> {
+  const params = new URLSearchParams();
+  params.append("source_url", sourceUrl);
+  if (platform) params.append("platform", platform);
+  const url = `${API_BASE}/scan/url?${params.toString()}`;
+  const res = await fetch(url, {
+    method: "POST",
+  });
+  if (!res.ok) throw new Error(await res.text());
+  return res.json();
+}
+
 // ─── Violations ────────────────────────────────────────────────
 
 export async function listViolations(): Promise<Violation[]> {

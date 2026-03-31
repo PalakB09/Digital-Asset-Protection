@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useRef } from "react";
-import { scanImage, scanVideo, getAssetImageUrl, type ScanResult } from "@/lib/api";
+import { scanImage, scanVideo, scanByUrl, getAssetImageUrl, type ScanResult } from "@/lib/api";
 
 export default function ScanPage() {
   const [scanning, setScanning] = useState(false);
@@ -10,7 +10,17 @@ export default function ScanPage() {
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [fileType, setFileType] = useState<"image" | "video" | null>(null);
   const [platform, setPlatform] = useState("unknown");
+  const [sourceUrl, setSourceUrl] = useState("");
   const fileRef = useRef<HTMLInputElement>(null);
+
+  function isLikelyVideoUrl(url: string): boolean {
+    const lowered = url.toLowerCase();
+    return (
+      lowered.includes("youtube.com/watch") ||
+      lowered.includes("youtu.be/") ||
+      [".mp4", ".mov", ".mkv", ".webm", ".avi"].some((ext) => lowered.includes(ext))
+    );
+  }
 
   async function handleScan(file: File) {
     const isVideo = file.type.startsWith("video/");
@@ -43,6 +53,25 @@ export default function ScanPage() {
     const file = e.target.files?.[0];
     if (file) handleScan(file);
     e.target.value = "";
+  }
+
+  async function handleUrlScan() {
+    const trimmed = sourceUrl.trim();
+    if (!trimmed) return;
+
+    setScanning(true);
+    setResult(null);
+    setPreviewUrl(trimmed);
+    setFileType(isLikelyVideoUrl(trimmed) ? "video" : "image");
+
+    try {
+      const res = await scanByUrl(trimmed, platform);
+      setResult(res);
+    } catch (e) {
+      setResult({ matched: false, message: `Scan failed: ${e}` });
+    } finally {
+      setScanning(false);
+    }
   }
 
   function reset() {
@@ -111,6 +140,36 @@ export default function ScanPage() {
         )}
       </div>
 
+      {/* URL Scan */}
+      <div className="card p-4 mb-8">
+        <p className="font-semibold mb-2">Or scan directly from URL</p>
+        <p className="text-sm mb-3" style={{ color: "var(--text-secondary)" }}>
+          Paste a direct image link or a video page URL (for example YouTube), then run scan.
+        </p>
+        <div className="flex flex-col md:flex-row gap-3">
+          <input
+            type="url"
+            placeholder="https://www.youtube.com/watch?v=... or https://site.com/image.jpg"
+            value={sourceUrl}
+            onChange={(e) => setSourceUrl(e.target.value)}
+            className="w-full px-3 py-2 rounded-lg text-sm"
+            style={{
+              background: "var(--bg-card)",
+              border: "1px solid var(--border-color)",
+              color: "var(--text-primary)",
+            }}
+          />
+          <button
+            type="button"
+            onClick={handleUrlScan}
+            className="btn btn-primary"
+            disabled={scanning || !sourceUrl.trim()}
+          >
+            {scanning ? "Scanning..." : "Scan URL"}
+          </button>
+        </div>
+      </div>
+
       {/* Result */}
       {result && (
         <div className="animate-fade-in">
@@ -138,7 +197,15 @@ export default function ScanPage() {
                     <p className="text-xs font-semibold mb-2" style={{ color: "var(--text-secondary)" }}>SCANNED {fileType === "video" ? "VIDEO" : "IMAGE"}</p>
                     <div className="rounded-lg overflow-hidden" style={{ border: "2px solid var(--danger)" }}>
                       {previewUrl && fileType === "video" ? (
-                        <video src={previewUrl} className="w-full h-48 object-cover" controls muted />
+                        previewUrl.startsWith("http") ? (
+                          <div className="w-full h-48 p-4 text-sm" style={{ background: "var(--bg-secondary)", color: "var(--text-secondary)" }}>
+                            Video scanned from URL
+                            <br />
+                            <span className="font-mono break-all">{previewUrl}</span>
+                          </div>
+                        ) : (
+                          <video src={previewUrl} className="w-full h-48 object-cover" controls muted />
+                        )
                       ) : previewUrl ? (
                         <img src={previewUrl} alt="Scanned" className="w-full h-48 object-cover" />
                       ) : null}

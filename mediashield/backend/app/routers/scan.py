@@ -4,7 +4,11 @@ Scan router — upload a suspect image and check for matches.
 
 import os
 import shutil
+import subprocess
+import sys
 import tempfile
+import urllib.request
+from urllib.parse import urlparse
 from uuid import uuid4
 from fastapi import APIRouter, UploadFile, File, Depends, HTTPException, WebSocket, WebSocketDisconnect
 from sqlalchemy.orm import Session
@@ -85,6 +89,60 @@ async def scan_uploaded_image(
 
 VIDEO_MIME_TYPES = {"video/mp4", "video/mpeg", "video/quicktime", "video/x-msvideo", "video/webm"}
 
+
+def _is_video_url(url: str) -> bool:
+    lowered = url.lower()
+    return (
+        "youtube.com/watch" in lowered
+        or "youtu.be/" in lowered
+        or any(lowered.endswith(ext) for ext in [".mp4", ".mov", ".mkv", ".webm", ".avi"])
+    )
+
+
+def _download_image_from_url(url: str) -> tuple[str, str] | tuple[None, None]:
+    suffix = ".jpg"
+    parsed_path = urlparse(url).path.lower()
+    if parsed_path.endswith((".png", ".webp", ".jpeg", ".jpg")):
+        suffix = os.path.splitext(parsed_path)[1] or ".jpg"
+
+    fd, tmp_path = tempfile.mkstemp(prefix="mediashield_scan_", suffix=suffix)
+    os.close(fd)
+    try:
+        with urllib.request.urlopen(url, timeout=20) as response:
+            content_type = (response.headers.get("Content-Type") or "").lower()
+            with open(tmp_path, "wb") as f:
+                f.write(response.read())
+        return tmp_path, content_type
+    except Exception:
+        if os.path.exists(tmp_path):
+            os.remove(tmp_path)
+        return None, None
+
+
+def _download_video_from_url(url: str) -> str | None:
+    fd, tmp_path = tempfile.mkstemp(prefix="mediashield_scan_video_", suffix=".mp4")
+    os.close(fd)
+    if os.path.exists(tmp_path):
+        os.remove(tmp_path)
+
+    out_template = tmp_path.replace(".mp4", ".%(ext)s")
+    cmd = [sys.executable, "-m", "yt_dlp", "-f", "best[ext=mp4]/best", "-o", out_template, url]
+    try:
+        subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    except Exception:
+        return None
+
+    candidates = [
+        tmp_path,
+        tmp_path.replace(".mp4", ".mkv"),
+        tmp_path.replace(".mp4", ".webm"),
+        tmp_path.replace(".mp4", ".mov"),
+    ]
+    for candidate in candidates:
+        if os.path.exists(candidate):
+            return candidate
+    return None
+
 @router.post("/video")
 async def scan_uploaded_video(
     file: UploadFile = File(...),
@@ -153,3 +211,113 @@ async def scan_uploaded_video(
         "match_type": result.match_type,
         "details": result.details,
     }
+
+
+@router.post("/url")
+async def scan_from_url(
+    source_url: str,
+    platform: str = "unknown",
+    db: Session = Depends(get_db),
+):
+    """
+    Scan suspect media directly from a URL.
+
+    Supports direct image URLs and video-style URLs (including YouTube links).
+    """
+    if not source_url.startswith(("http://", "https://")):
+        raise HTTPException(status_code=400, detail="source_url must be an http/https URL")
+
+    # Video-like URLs are downloaded with yt-dlp and checked via video matcher.
+    if _is_video_url(source_url):
+        video_path = _download_video_from_url(source_url)
+        if not video_path:
+            raise HTTPException(status_code=400, detail="Unable to download video from URL")
+
+        try:
+            result = match_video(video_path=video_path, db=db, n_frames=None)
+            if not result.matched:
+                return {
+                    "matched": False,
+                    "message": "No matching video asset found",
+                    "details": result.details,
+                }
+
+            from app.models.violation import Violation, PropagationEdge
+            violation_id = str(uuid4())
+            filename = f"scan_url_{violation_id}.mp4"
+
+            violation = Violation(
+                id=violation_id,
+                asset_id=result.asset_id,
+                source_url=source_url,
+                platform=platform,
+                confidence=result.confidence,
+                match_tier=result.match_tier,
+                match_type=result.match_type,
+                image_path=filename,
+            )
+            db.add(violation)
+
+            edge = PropagationEdge(
+                id=str(uuid4()),
+                source_asset_id=result.asset_id,
+                violation_id=violation_id,
+                platform=platform,
+            )
+            db.add(edge)
+            db.commit()
+            db.refresh(violation)
+
+            return {
+                "matched": True,
+                "violation_id": violation.id,
+                "asset_id": result.asset_id,
+                "asset_name": result.asset_name,
+                "confidence": result.confidence,
+                "match_tier": result.match_tier,
+                "match_type": result.match_type,
+                "details": result.details,
+            }
+        finally:
+            if os.path.exists(video_path):
+                os.remove(video_path)
+
+    # Otherwise treat as image URL.
+    image_path, content_type = _download_image_from_url(source_url)
+    if not image_path:
+        raise HTTPException(status_code=400, detail="Unable to download image from URL")
+
+    if content_type and not content_type.startswith("image/"):
+        if os.path.exists(image_path):
+            os.remove(image_path)
+        raise HTTPException(status_code=400, detail="URL does not point to an image")
+
+    scan_id = str(uuid4())
+    filename = f"scan_{scan_id}.jpg"
+    violation_filepath = os.path.join(str(VIOLATION_DIR), filename)
+    shutil.move(image_path, violation_filepath)
+
+    try:
+        image = Image.open(violation_filepath).convert("RGB")
+    except Exception as e:
+        if os.path.exists(violation_filepath):
+            os.remove(violation_filepath)
+        raise HTTPException(status_code=400, detail=f"Invalid image from URL: {str(e)}")
+
+    result = scan_image(
+        image=image,
+        db=db,
+        source_url=source_url,
+        platform=platform,
+        image_path=filename,
+    )
+
+    if result.get("matched"):
+        await alert_manager.broadcast(
+            {
+                "type": "violation_alert",
+                "violation": {k: v for k, v in result.items() if k != "details"},
+            }
+        )
+
+    return result

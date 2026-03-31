@@ -1,0 +1,15 @@
+[
+  {
+    "name": "YouTube Search - match highlights",
+    "platform": "youtube",
+    "url": "https://www.youtube.com/results?search_query=match+highlights",
+    "post_selector": "a#video-title",
+    "post_url_attr": "href",
+    "media_selector": "img",
+    "include_patterns": [
+      "watch?v="
+    ],
+    "max_posts": 15,
+    "wait_for_selector": "a#video-title"
+  }
+]
