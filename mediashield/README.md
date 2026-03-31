@@ -1,16 +1,18 @@
 # MediaShield — Digital Asset Protection System
 
-MediaShield is an MVP for detecting, tracking, and enforcing ownership of digital media assets across images and videos. It uses fast visual fingerprinting, CLIP embeddings, watermark verification, near real-time event ingestion, and instant alerting.
+MediaShield is a production-grade system for detecting, tracking, and enforcing ownership of digital media assets across images and videos. It uses fast visual fingerprinting, CLIP embeddings, watermark verification, background job processing, async event ingestion, and alerting.
 
 ## Architecture
 
 ```
 Next.js Frontend (:3000) <-> FastAPI Backend (:8000)
-                                                            |- SQLite (assets, violations, propagation)
-                                                            |- ChromaDB (image + video frame embeddings)
-                                                            |- Local filesystem (uploads, violations, DMCA PDFs)
-                                                            |- In-memory monitoring queue + dedup cache
-                                                            `- WebSocket alert broadcaster
+                                |- SQLite (assets, violations, propagation, job status)
+                                |- ChromaDB (image + video frame embeddings)
+                                |- Local filesystem (uploads, violations, DMCA PDFs)
+                                |- Job Queue (Redis / asyncio.Queue fallback)
+                                |- Background Job Worker (async detection pipeline)
+                                |- In-memory monitoring queue + dedup cache
+                                `- WebSocket alert broadcaster
 ```
 
 ## Tech Stack
@@ -21,9 +23,11 @@ Next.js Frontend (:3000) <-> FastAPI Backend (:8000)
 | ML | CLIP (ViT-B/32), imagehash (pHash), DCT watermarking |
 | Video Processing | OpenCV, ffmpeg, yt-dlp |
 | Vector Search | ChromaDB |
+| Job Queue | Redis (Upstash compatible) with asyncio.Queue fallback |
 | PDF Generation | fpdf2 |
 | Frontend | Next.js 16, React 19, Tailwind CSS |
 | Visualization | SVG-based propagation graph |
+| Testing | pytest, pytest-asyncio, httpx |
 
 ## Quick Start
 
@@ -32,6 +36,7 @@ Next.js Frontend (:3000) <-> FastAPI Backend (:8000)
 - Node.js 18+
 - ffmpeg installed and available on PATH
 - yt-dlp installed and available on PATH
+- Redis (optional — system falls back to in-process queue automatically)
 
 ### Backend
 
@@ -52,12 +57,24 @@ pip install -r requirements.txt
 # Install Playwright browser runtime (required for discovery worker)
 python -m playwright install chromium
 
-# Run API
+# Run API (starts background job worker automatically)
 python -m uvicorn app.main:app --host 0.0.0.0 --port 8000
 ```
 
-API: `http://localhost:8000`
+API: `http://localhost:8000`  
 Swagger: `http://localhost:8000/docs`
+
+#### Optional: Redis Queue
+
+By default, the job queue uses an in-process `asyncio.Queue`. For production deployments (or Upstash), set:
+
+```bash
+export REDIS_URL="redis://localhost:6379"
+# or for Upstash:
+export REDIS_URL="rediss://default:YOUR_TOKEN@your-endpoint.upstash.io:6379"
+```
+
+The system auto-detects and logs: `[QUEUE MODE: REDIS]` or `[QUEUE MODE: LOCAL]`.
 
 ### Discovery Worker (Playwright Polling)
 
@@ -96,17 +113,26 @@ npm run dev
 
 Dashboard: `http://localhost:3000`
 
+### Running Tests
+
+```bash
+cd mediashield/backend
+python -m pytest tests/test_pipeline.py -v -s
+```
+
+The test suite covers 13 scenarios across 8 categories — see [Test Suite](#test-suite) below.
+
 ## Core Features
 
 ### 1. Image Asset Registration
 - Registers original images with:
-    - pHash
-    - CLIP embedding
-    - ingestion-time DCT watermark embedding
+    - pHash fingerprint
+    - CLIP embedding (512-d vector)
+    - Ingestion-time DCT watermark embedding
 
 ### 2. Video Asset Registration
 - Upload original videos (`/api/assets/video`)
-- Uniform frame extraction + CLIP frame embeddings
+- Uniform stratified frame extraction + CLIP frame embeddings
 - Stores frame embeddings in separate video vector collection
 
 ### 3. Tiered Detection
@@ -118,28 +144,53 @@ Suspect Image -> L1: pHash -> L2: CLIP -> L3: Watermark Verification
 
 Video pipeline:
 ```
-Suspect Video -> Frame extraction -> Video CLIP set similarity + pHash fallback
+Suspect Video -> Frame extraction -> Video CLIP set similarity + pHash fallback -> Majority voting
 ```
 
 ### 4. Watermark-Based Attribution
 - DCT watermark payload stores asset ownership identifier
 - If watermark extraction matches the detected asset, violation tier is set to `VERIFIED`
 
-### 5. Near Real-Time Monitoring
+### 5. Background Job Processing
+- **Job Queue**: Redis (Upstash compatible) with automatic fallback to `asyncio.Queue`
+- **Job Worker**: Continuously processes queued jobs with structured logging:
+  ```
+  [JOB START] -> [PHASH DONE] -> [CLIP DONE] -> [WATERMARK DONE] -> [JOB END]
+  ```
+- **Retry logic**: Up to 2 retries on transient failures, then marks job `failed`
+- **Crash-proof**: All exceptions caught — worker never stops
+
+### 6. Hybrid Sync/Async URL Scanning
+- **Image URLs**: Processed synchronously (fast response)
+- **Video URLs**: Auto-fallback to async queue (returns `job_id` for polling)
+- **Forced async**: `?async_mode=true` queues any URL scan
+- Response formats:
+  ```json
+  // Synchronous result
+  { "status": "completed", "matched": true, "confidence": 0.95 }
+
+  // Async queued
+  { "status": "queued", "job_id": "abc-123", "message": "Processing in background" }
+  ```
+
+### 7. Deduplication
+- SHA-256 hash-based LRU cache with 1-hour TTL
+- Prevents re-processing the same URL or media content
+- Supports up to 10,000 cached entries
+
+### 8. Monitoring
 - In-memory dedup + queue ingestion endpoint (`/api/monitoring/events`)
 - Background worker processes queued post/media events
 
-### 6. Real-Time Alerts
-- WebSocket endpoint (`/api/scan/ws/alerts`) pushes violation alerts instantly to connected clients
-
-### 7. YouTube WebSub Webhook Support
-- Verification + push notification handling:
-    - `GET /api/webhooks/youtube`
-    - `POST /api/webhooks/youtube`
-
-### 8. Propagation Graph + DMCA
-- Graph endpoints for spread visualization
+### 9. Propagation Graph + DMCA
+- Graph endpoints for spread visualization (supports both image and video assets)
 - One-click DMCA generation and download
+
+### 10. Database Status Tracking
+- Every violation record includes:
+    - `processing_status`: `pending` → `processing` → `done` | `failed`
+    - `detection_stage_results`: JSON blob with per-stage diagnostics
+    - `confidence` score
 
 ## API Endpoints
 
@@ -156,21 +207,28 @@ Suspect Video -> Frame extraction -> Video CLIP set similarity + pHash fallback
 | POST | `/api/assets/video` | Register video asset |
 | GET | `/api/assets` | List assets |
 | GET | `/api/assets/{asset_id}` | Get asset details |
-| GET | `/api/assets/{asset_id}/image` | Get asset image |
+| GET | `/api/assets/{asset_id}/image` | Get asset media (image or video) |
 
 ### Scan
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| POST | `/api/scan` | Scan suspect image |
-| POST | `/api/scan/video` | Scan suspect video |
-| WS | `/api/scan/ws/alerts` | Real-time violation alerts |
+| POST | `/api/scan` | Scan suspect image (sync) |
+| POST | `/api/scan/video` | Scan suspect video (sync) |
+| POST | `/api/scan/url` | Scan from URL (sync for images, async for videos) |
+| POST | `/api/scan/url?async_mode=true` | Force async scan from URL |
+
+### Jobs
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/jobs` | List recent jobs with status |
+| GET | `/api/jobs/{job_id}` | Get job status and result |
 
 ### Violations
 | Method | Endpoint | Description |
 |--------|----------|-------------|
 | GET | `/api/violations` | List violations |
 | GET | `/api/violations/{violation_id}` | Get violation details |
-| GET | `/api/violations/{violation_id}/image` | Get violation media image |
+| GET | `/api/violations/{violation_id}/image` | Get violation media |
 | POST | `/api/violations/{violation_id}/dmca` | Generate DMCA PDF |
 | GET | `/api/violations/{violation_id}/dmca` | Download DMCA PDF |
 
@@ -186,11 +244,25 @@ Suspect Video -> Frame extraction -> Video CLIP set similarity + pHash fallback
 | POST | `/api/monitoring/events` | Ingest discovered post/media event |
 | GET | `/api/monitoring/queue` | Queue and dedup stats |
 
-### Webhooks
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| GET | `/api/webhooks/youtube` | WebSub challenge response |
-| POST | `/api/webhooks/youtube` | YouTube upload push ingestion |
+## Test Suite
+
+Run: `python -m pytest tests/test_pipeline.py -v -s`
+
+| # | Test | What it verifies |
+|---|------|-----------------|
+| 1 | Job Creation | `?async_mode=true` creates a job in the queue with `status=pending` |
+| 2A | Same Image Match | Identical image scan produces high-confidence match |
+| 2B | Modified Image Match | Resized/compressed image still detected (confidence > 0.5) |
+| 2C | Different Image | Distinct pattern image properly evaluated |
+| 3 | Video Pipeline | Video URL auto-fallback to async queue + job status polling |
+| 4 | Deduplication | Same URL scanned twice — second is deduplicated |
+| 5 | DB Status | Violation record has `processing_status=done` after scan |
+| 6A | Invalid File | Non-image upload rejected with 400 |
+| 6B | Broken Image | Corrupted JPEG rejected with 400 |
+| 6C | Empty Input | Empty file rejected with 400 |
+| 6D | Worker Recovery | Invalid job marked `failed`, worker continues |
+| 7 | Queue Stability | 5 rapid-fire jobs all queued without crash |
+| 8 | End-to-End | Full pipeline: register → scan → violation → API query → jobs list |
 
 ## Project Structure
 
@@ -198,40 +270,51 @@ Suspect Video -> Frame extraction -> Video CLIP set similarity + pHash fallback
 mediashield/
 ├── backend/
 │   ├── app/
-│   │   ├── main.py
-│   │   ├── config.py
-│   │   ├── database.py
+│   │   ├── main.py                    # FastAPI entry point + lifespan
+│   │   ├── config.py                  # Thresholds, paths, model names
+│   │   ├── database.py                # SQLAlchemy + safe migrations
 │   │   ├── models/
-│   │   │   ├── asset.py
-│   │   │   └── violation.py
+│   │   │   ├── asset.py               # Asset model (image/video)
+│   │   │   └── violation.py           # Violation + PropagationEdge models
 │   │   ├── routers/
-│   │   │   ├── assets.py
-│   │   │   ├── scan.py
-│   │   │   ├── violations.py
-│   │   │   ├── graph.py
-│   │   │   ├── monitoring.py
-│   │   │   └── webhooks.py
+│   │   │   ├── assets.py              # Asset CRUD + registration
+│   │   │   ├── scan.py                # Image/video/URL scan (sync+async)
+│   │   │   ├── violations.py          # Violation CRUD + DMCA
+│   │   │   ├── graph.py               # Propagation graph data
+│   │   │   ├── monitoring.py          # Event ingestion endpoint
+│   │   │   ├── webhooks.py            # YouTube WebSub
+│   │   │   └── jobs.py                # Job status polling
 │   │   └── services/
-│   │       ├── fingerprint.py
-│   │       ├── matcher.py
-│   │       ├── scanner.py
-│   │       ├── watermark.py
-│   │       ├── video_fingerprint.py
-│   │       ├── video_matcher.py
-│   │       ├── vector_store.py
-│   │       ├── monitoring.py
-│   │       ├── alerts.py
-│   │       ├── graph_service.py
-│   │       └── dmca.py
-│   └── requirements.txt
+│   │       ├── fingerprint.py         # pHash + CLIP embedding
+│   │       ├── matcher.py             # Tiered matching pipeline
+│   │       ├── scanner.py             # Full image scan + violation creation
+│   │       ├── watermark.py           # DCT watermark embed/extract
+│   │       ├── video_fingerprint.py   # Frame extraction + video CLIP
+│   │       ├── video_matcher.py       # Video set-similarity matching
+│   │       ├── vector_store.py        # ChromaDB wrapper
+│   │       ├── job_queue.py           # Redis / asyncio.Queue job queue
+│   │       ├── job_worker.py          # Background job processor
+│   │       ├── dedup.py               # URL/media deduplication cache
+│   │       ├── log_config.py          # Structured logging setup
+│   │       ├── monitoring.py          # Monitoring background worker
+│   │       ├── alerts.py              # WebSocket alert broadcaster
+│   │       ├── graph_service.py       # Propagation graph builder
+│   │       └── dmca.py                # DMCA PDF generator
+│   ├── tests/
+│   │   ├── conftest.py                # Pytest configuration
+│   │   └── test_pipeline.py           # 13-test validation suite
+│   ├── workers/
+│   │   └── playwright_discovery_worker.py
+│   ├── requirements.txt
+│   └── pytest.ini
 ├── frontend/
 │   └── src/
 │       ├── app/
-│       │   ├── assets/
-│       │   ├── scan/
-│       │   ├── violations/
-│       │   └── graph/
+│       │   ├── assets/                # Asset dashboard (image + video)
+│       │   ├── scan/                  # Scan page (URL + file upload)
+│       │   ├── violations/            # Violation list + media viewer
+│       │   └── graph/                 # Propagation graph visualization
 │       └── lib/
-│           └── api.ts
+│           └── api.ts                 # API client (sync + async + jobs)
 └── README.md
 ```
