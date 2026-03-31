@@ -124,10 +124,14 @@ export default function AssetsPage() {
             <div key={asset.id} className="card overflow-hidden animate-fade-in" style={{ animationDelay: `${i * 0.05}s` }}>
               <div className="aspect-video relative overflow-hidden flex items-center justify-center" style={{ background: "var(--bg-secondary)" }}>
                 {asset.asset_type === "video" ? (
-                  <div className="flex flex-col items-center gap-2">
-                    <p className="text-4xl">🎬</p>
-                    <p className="text-xs" style={{ color: "var(--text-muted)" }}>{asset.frame_count} frames</p>
-                  </div>
+                  <video
+                    src={getAssetImageUrl(asset.id)}
+                    autoPlay
+                    loop
+                    muted
+                    playsInline
+                    className="w-full h-full object-cover"
+                  />
                 ) : (
                   <img
                     src={getAssetImageUrl(asset.id)}

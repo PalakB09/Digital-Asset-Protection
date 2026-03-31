@@ -16,6 +16,7 @@ export interface Violation {
   id: string;
   asset_id: string;
   asset_name: string;
+  asset_type?: string;
   source_url: string;
   platform: string;
   confidence: number;
@@ -139,10 +140,11 @@ export async function scanVideo(file: File, platform?: string): Promise<ScanResu
   return res.json();
 }
 
-export async function scanByUrl(sourceUrl: string, platform?: string): Promise<ScanResult> {
+export async function scanByUrl(sourceUrl: string, platform?: string, mediaType?: string): Promise<ScanResult> {
   const params = new URLSearchParams();
   params.append("source_url", sourceUrl);
   if (platform) params.append("platform", platform);
+  if (mediaType) params.append("media_type", mediaType);
   const url = `${API_BASE}/scan/url?${params.toString()}`;
   const res = await fetch(url, {
     method: "POST",
@@ -200,5 +202,42 @@ export async function listGraphAssets(): Promise<Asset[]> {
 export async function getStats(): Promise<Stats> {
   const res = await fetch(`${API_BASE}/stats`);
   if (!res.ok) throw new Error("Failed to fetch stats");
+  return res.json();
+}
+
+// ─── Jobs (Background Processing) ──────────────────────────────
+
+export interface JobStatus {
+  job_id: string;
+  status: "pending" | "processing" | "done" | "failed";
+  job_type: string;
+  created_at: string;
+  started_at?: string;
+  finished_at?: string;
+  result?: ScanResult;
+  error?: string;
+}
+
+export async function getJobStatus(jobId: string): Promise<JobStatus> {
+  const res = await fetch(`${API_BASE}/jobs/${jobId}`);
+  if (!res.ok) throw new Error("Job not found");
+  return res.json();
+}
+
+export async function listJobs(limit: number = 50): Promise<JobStatus[]> {
+  const res = await fetch(`${API_BASE}/jobs?limit=${limit}`);
+  if (!res.ok) throw new Error("Failed to fetch jobs");
+  return res.json();
+}
+
+export async function scanByUrlAsync(sourceUrl: string, platform?: string, mediaType?: string): Promise<{ status: string; job_id?: string }> {
+  const params = new URLSearchParams();
+  params.append("source_url", sourceUrl);
+  params.append("async_mode", "true");
+  if (platform) params.append("platform", platform);
+  if (mediaType) params.append("media_type", mediaType);
+  const url = `${API_BASE}/scan/url?${params.toString()}`;
+  const res = await fetch(url, { method: "POST" });
+  if (!res.ok) throw new Error(await res.text());
   return res.json();
 }

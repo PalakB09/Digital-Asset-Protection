@@ -6,6 +6,7 @@ import os
 import shutil
 import tempfile
 import hashlib
+import mimetypes
 from uuid import uuid4
 from fastapi import APIRouter, UploadFile, File, Depends, HTTPException
 from fastapi.responses import FileResponse
@@ -122,7 +123,8 @@ async def get_asset_image(asset_id: str, db: Session = Depends(get_db)):
     if not os.path.exists(filepath):
         raise HTTPException(status_code=404, detail="Image file not found")
     
-    return FileResponse(filepath, media_type="image/jpeg")
+    mime_type, _ = mimetypes.guess_type(filepath)
+    return FileResponse(filepath, media_type=mime_type or "application/octet-stream")
 
 
 VIDEO_MIME_TYPES = {"video/mp4", "video/mpeg", "video/quicktime", "video/x-msvideo", "video/webm"}

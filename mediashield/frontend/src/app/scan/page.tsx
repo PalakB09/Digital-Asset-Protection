@@ -16,8 +16,13 @@ export default function ScanPage() {
   function isLikelyVideoUrl(url: string): boolean {
     const lowered = url.toLowerCase();
     return (
-      lowered.includes("youtube.com/watch") ||
+      lowered.includes("youtube.com") ||
       lowered.includes("youtu.be/") ||
+      lowered.includes("tiktok.com") ||
+      lowered.includes("twitter.com") ||
+      lowered.includes("x.com") ||
+      lowered.includes("instagram.com/reel") ||
+      lowered.includes("vimeo.com") ||
       [".mp4", ".mov", ".mkv", ".webm", ".avi"].some((ext) => lowered.includes(ext))
     );
   }
@@ -62,10 +67,11 @@ export default function ScanPage() {
     setScanning(true);
     setResult(null);
     setPreviewUrl(trimmed);
-    setFileType(isLikelyVideoUrl(trimmed) ? "video" : "image");
+    const type = isLikelyVideoUrl(trimmed) ? "video" : "image";
+    setFileType(type);
 
     try {
-      const res = await scanByUrl(trimmed, platform);
+      const res = await scanByUrl(trimmed, platform, type);
       setResult(res);
     } catch (e) {
       setResult({ matched: false, message: `Scan failed: ${e}` });

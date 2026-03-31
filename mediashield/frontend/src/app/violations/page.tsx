@@ -77,21 +77,29 @@ export default function ViolationsPage() {
                   <div>
                     <p className="text-xs mb-1" style={{ color: "var(--text-muted)" }}>Violation</p>
                     <div className="w-24 h-24 rounded-lg overflow-hidden" style={{ border: "2px solid var(--danger)" }}>
-                      <img
-                        src={getViolationImageUrl(v.id)}
-                        alt="Violation"
-                        className="w-full h-full object-cover"
-                      />
+                      {v.image_path && v.image_path.match(/\.(mp4|mov|webm|avi)$/i) ? (
+                        <video src={getViolationImageUrl(v.id)} autoPlay loop muted playsInline className="w-full h-full object-cover" />
+                      ) : (
+                        <img
+                          src={getViolationImageUrl(v.id)}
+                          alt="Violation"
+                          className="w-full h-full object-cover"
+                        />
+                      )}
                     </div>
                   </div>
                   <div>
                     <p className="text-xs mb-1" style={{ color: "var(--text-muted)" }}>Original</p>
                     <div className="w-24 h-24 rounded-lg overflow-hidden" style={{ border: "2px solid var(--success)" }}>
-                      <img
-                        src={getAssetImageUrl(v.asset_id)}
-                        alt="Original"
-                        className="w-full h-full object-cover"
-                      />
+                      {v.asset_type === "video" ? (
+                        <video src={getAssetImageUrl(v.asset_id)} autoPlay loop muted playsInline className="w-full h-full object-cover" />
+                      ) : (
+                        <img
+                          src={getAssetImageUrl(v.asset_id)}
+                          alt="Original"
+                          className="w-full h-full object-cover"
+                        />
+                      )}
                     </div>
                   </div>
                 </div>

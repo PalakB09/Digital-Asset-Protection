@@ -17,3 +17,6 @@ yt-dlp
 ffmpeg-python
 playwright
 httpx
+redis
+pytest
+pytest-asyncio

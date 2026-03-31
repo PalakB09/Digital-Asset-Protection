@@ -92,6 +92,7 @@ def get_all_assets_with_violations(db: Session) -> list[dict]:
         result.append({
             "id": asset.id,
             "name": asset.name,
+            "asset_type": asset.asset_type,
             "violation_count": violation_count,
             "created_at": asset.created_at.isoformat() if asset.created_at else None,
         })

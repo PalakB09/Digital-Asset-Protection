@@ -1,6 +1,6 @@
 from datetime import datetime
 from uuid import uuid4
-from sqlalchemy import Column, String, Float, DateTime, ForeignKey, Boolean
+from sqlalchemy import Column, String, Float, DateTime, ForeignKey, Boolean, Text
 from app.database import Base
 
 
@@ -17,6 +17,8 @@ class Violation(Base):
     image_path = Column(String, nullable=False)
     watermark_verified = Column(Boolean, default=False)
     attribution = Column(String, nullable=True)
+    processing_status = Column(String, default="done")  # pending, processing, done, failed
+    detection_stage_results = Column(Text, nullable=True)  # JSON string
     created_at = Column(DateTime, default=datetime.utcnow)
 
     def to_dict(self):
@@ -31,6 +33,8 @@ class Violation(Base):
             "image_path": self.image_path,
             "watermark_verified": self.watermark_verified,
             "attribution": self.attribution,
+            "processing_status": self.processing_status,
+            "detection_stage_results": self.detection_stage_results,
             "created_at": self.created_at.isoformat() if self.created_at else None,
         }
 

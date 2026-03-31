@@ -3,6 +3,7 @@ Violations router — list violations and generate DMCA reports.
 """
 
 import os
+import mimetypes
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
@@ -26,6 +27,7 @@ async def list_violations(db: Session = Depends(get_db)):
         result.append({
             **v.to_dict(),
             "asset_name": asset.name if asset else "Unknown",
+            "asset_type": asset.asset_type if asset else "image",
         })
     return result
 
@@ -41,6 +43,7 @@ async def get_violation(violation_id: str, db: Session = Depends(get_db)):
     return {
         **violation.to_dict(),
         "asset_name": asset.name if asset else "Unknown",
+        "asset_type": asset.asset_type if asset else "image",
     }
 
 
@@ -55,7 +58,8 @@ async def get_violation_image(violation_id: str, db: Session = Depends(get_db)):
     if not os.path.exists(filepath):
         raise HTTPException(status_code=404, detail="Image file not found")
     
-    return FileResponse(filepath, media_type="image/jpeg")
+    mime_type, _ = mimetypes.guess_type(filepath)
+    return FileResponse(filepath, media_type=mime_type or "application/octet-stream")
 
 
 @router.post("/{violation_id}/dmca")

@@ -9,16 +9,22 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.database import init_db
 from app.routers import assets, scan, violations, graph, monitoring, webhooks
+from app.routers import jobs as jobs_router
 from app.services.monitoring import monitoring_worker
+from app.services.job_worker import job_worker
+from app.services.log_config import setup_logging
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Initialize database on startup."""
+    setup_logging()
     init_db()
-    worker_task = asyncio.create_task(monitoring_worker())
+    monitoring_task = asyncio.create_task(monitoring_worker())
+    worker_task = asyncio.create_task(job_worker())
     yield
     worker_task.cancel()
+    monitoring_task.cancel()
 
 
 app = FastAPI(
@@ -44,6 +50,7 @@ app.include_router(violations.router, prefix="/api")
 app.include_router(graph.router, prefix="/api")
 app.include_router(monitoring.router, prefix="/api")
 app.include_router(webhooks.router, prefix="/api")
+app.include_router(jobs_router.router, prefix="/api")
 
 
 @app.get("/api/health")

@@ -63,6 +63,10 @@ def _run_sqlite_migrations():
             conn.exec_driver_sql("ALTER TABLE violations ADD COLUMN watermark_verified BOOLEAN DEFAULT 0")
         if "attribution" not in violation_cols:
             conn.exec_driver_sql("ALTER TABLE violations ADD COLUMN attribution VARCHAR")
+        if "processing_status" not in violation_cols:
+            conn.exec_driver_sql("ALTER TABLE violations ADD COLUMN processing_status VARCHAR DEFAULT 'done'")
+        if "detection_stage_results" not in violation_cols:
+            conn.exec_driver_sql("ALTER TABLE violations ADD COLUMN detection_stage_results TEXT")
 
 
 def _table_columns(conn, table_name: str) -> set[str]:
