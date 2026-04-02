@@ -1,8 +1,14 @@
 import os
 from pathlib import Path
+from dotenv import load_dotenv
 
 # Base directory is the backend folder
 BASE_DIR = Path(__file__).resolve().parent.parent
+
+# Load only backend/.env (source of truth for GEMINI_API_KEY)
+_env_path = BASE_DIR / ".env"
+if _env_path.is_file():
+    load_dotenv(_env_path, override=True)
 
 # Storage paths
 UPLOAD_DIR = BASE_DIR / "storage" / "originals"
@@ -35,6 +41,11 @@ VIDEO_SCAN_SHORT_MAX_FRAMES = 32
 
 # CLIP model
 CLIP_MODEL_NAME = "openai/clip-vit-base-patch32"
+
+# Gemini (keywords)
+GEMINI_API_KEY = (os.environ.get("GEMINI_API_KEY", "") or "").strip().lstrip("\ufeff").strip('"').strip("'")
+# Lightest vision-capable model for keyword generation (code-defined; not from .env)
+GEMINI_MODEL = "models/gemini-2.0-flash-lite"
 
 # Create directories on import
 for d in [UPLOAD_DIR, VIOLATION_DIR, DMCA_DIR, CHROMA_DIR]:

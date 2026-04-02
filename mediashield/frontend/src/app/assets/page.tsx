@@ -1,15 +1,28 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
-import { registerAsset, registerVideoAsset, listAssets, getAssetImageUrl, type Asset } from "@/lib/api";
+import {
+  registerAsset,
+  registerVideoAsset,
+  registerAssetFromUrl,
+  listAssets,
+  getAssetImageUrl,
+  type Asset,
+} from "@/lib/api";
 
 export default function AssetsPage() {
   const [assets, setAssets] = useState<Asset[]>([]);
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
   const [dragOver, setDragOver] = useState(false);
-  const [message, setMessage] = useState<{ type: string; text: string } | null>(null);
+  const [message, setMessage] = useState<{
+    type: string;
+    text: string;
+    keywords?: string[];
+  } | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+  const [assetUrl, setAssetUrl] = useState("");
+  const [urlMediaType, setUrlMediaType] = useState<"auto" | "image" | "video">("auto");
 
   useEffect(() => {
     loadAssets();
@@ -39,10 +52,18 @@ export default function AssetsPage() {
     try {
       if (isVideo) {
         const res = await registerVideoAsset(file);
-        setMessage({ type: "success", text: `"${file.name}" registered — ${res.frame_count} frames extracted and embedded.` });
+        setMessage({
+          type: "success",
+          text: `"${file.name}" registered — ${res.frame_count} frames extracted and embedded. Asset is trackable.`,
+          keywords: res.keywords,
+        });
       } else {
-        await registerAsset(file);
-        setMessage({ type: "success", text: `"${file.name}" registered successfully! Fingerprints generated.` });
+        const res = await registerAsset(file);
+        setMessage({
+          type: "success",
+          text: `"${file.name}" registered successfully! Fingerprints generated. Asset is trackable.`,
+          keywords: res.keywords,
+        });
       }
       await loadAssets();
     } catch (e) {
@@ -65,11 +86,78 @@ export default function AssetsPage() {
     e.target.value = "";
   }
 
+  async function handleRegisterFromUrl() {
+    const u = assetUrl.trim();
+    if (!u) return;
+    setUploading(true);
+    setMessage(null);
+    try {
+      const res = await registerAssetFromUrl(u, urlMediaType);
+      setMessage({
+        type: "success",
+        text: res.message ?? "Asset registered from URL.",
+        keywords: res.keywords,
+      });
+      setAssetUrl("");
+      await loadAssets();
+    } catch (e) {
+      setMessage({ type: "error", text: `URL registration failed: ${e}` });
+    } finally {
+      setUploading(false);
+    }
+  }
+
   return (
     <div>
       <div className="mb-8">
         <h1 className="text-3xl font-bold mb-2">Asset Registry</h1>
-        <p style={{ color: "var(--text-secondary)" }}>Upload original images to protect. Each asset gets a pHash + CLIP fingerprint.</p>
+        <p style={{ color: "var(--text-secondary)" }}>
+          Register originals (file or URL). Each asset gets pHash, CLIP, watermark (images), and Gemini keywords for discovery.
+        </p>
+      </div>
+
+      {/* Register from URL */}
+      <div className="card p-4 mb-8">
+        <p className="font-semibold mb-2">Register from link</p>
+        <p className="text-sm mb-3" style={{ color: "var(--text-secondary)" }}>
+          Direct image URL, or a video page URL (YouTube, etc.) — same processing as file upload, including AI keywords.
+        </p>
+        <div className="flex flex-col md:flex-row gap-3 items-stretch md:items-center">
+          <input
+            type="url"
+            placeholder="https://..."
+            value={assetUrl}
+            onChange={(e) => setAssetUrl(e.target.value)}
+            className="flex-1 px-3 py-2 rounded-lg text-sm"
+            style={{
+              background: "var(--bg-card)",
+              border: "1px solid var(--border-color)",
+              color: "var(--text-primary)",
+            }}
+          />
+          <select
+            value={urlMediaType}
+            onChange={(e) => setUrlMediaType(e.target.value as "auto" | "image" | "video")}
+            className="px-3 py-2 rounded-lg text-sm"
+            style={{
+              background: "var(--bg-card)",
+              border: "1px solid var(--border-color)",
+              color: "var(--text-primary)",
+            }}
+          >
+            <option value="auto">Auto detect</option>
+            <option value="image">Force image</option>
+            <option value="video">Force video</option>
+          </select>
+          <button
+            type="button"
+            className="btn btn-primary"
+            disabled={uploading || !assetUrl.trim()}
+            onClick={handleRegisterFromUrl}
+          >
+            Register URL
+          </button>
+        </div>
       </div>
 
       {/* Upload Zone */}
@@ -85,7 +173,7 @@ export default function AssetsPage() {
           <div className="flex flex-col items-center gap-3">
             <div className="spinner" style={{ width: 32, height: 32 }}></div>
             <p className="text-sm" style={{ color: "var(--text-secondary)" }}>
-              Processing... (extracting frames + generating embeddings)
+              Processing… fingerprints, embeddings, AI keywords
             </p>
           </div>
         ) : (
@@ -103,7 +191,29 @@ export default function AssetsPage() {
       {message && (
         <div className={`mb-6 p-4 rounded-lg animate-fade-in ${message.type === "success" ? "badge-success" : "badge-high"}`}
              style={{ fontSize: 14 }}>
-          {message.text}
+          <p className="mb-0">{message.text}</p>
+          {message.type === "success" && message.keywords && message.keywords.length > 0 && (
+            <div className="mt-3">
+              <p className="text-xs font-semibold mb-2" style={{ color: "var(--text-secondary)" }}>
+                AI keywords
+              </p>
+              <div className="flex flex-wrap gap-1.5">
+                {message.keywords.map((k, idx) => (
+                  <span
+                    key={`msg-kw-${idx}-${k}`}
+                    className="text-xs px-2 py-0.5 rounded-md"
+                    style={{
+                      background: "rgba(108, 99, 255, 0.15)",
+                      color: "var(--accent-primary)",
+                      border: "1px solid rgba(108, 99, 255, 0.35)",
+                    }}
+                  >
+                    {k}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
       )}
 
@@ -153,6 +263,32 @@ export default function AssetsPage() {
                     )}
                     <span className="badge badge-success">Protected</span>
                   </div>
+                </div>
+                <div className="mt-3">
+                  <p className="text-xs font-semibold mb-2" style={{ color: "var(--text-secondary)" }}>
+                    AI keywords
+                  </p>
+                  {asset.keywords && asset.keywords.length > 0 ? (
+                    <div className="flex flex-wrap gap-1.5">
+                      {asset.keywords.map((k, idx) => (
+                        <span
+                          key={`asset-kw-${asset.id}-${idx}`}
+                          className="text-xs px-2 py-0.5 rounded-md"
+                          style={{
+                            background: "rgba(108, 99, 255, 0.12)",
+                            color: "var(--accent-primary)",
+                            border: "1px solid rgba(108, 99, 255, 0.25)",
+                          }}
+                        >
+                          {k}
+                        </span>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="text-xs" style={{ color: "var(--text-muted)" }}>
+                      None (check GEMINI_API_KEY in backend/.env and server logs)
+                    </p>
+                  )}
                 </div>
                 <div className="mt-3 pt-3" style={{ borderTop: "1px solid var(--border-color)" }}>
                   <p className="text-xs font-mono truncate" style={{ color: "var(--text-muted)" }}>

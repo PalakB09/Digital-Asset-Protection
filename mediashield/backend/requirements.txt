@@ -17,6 +17,7 @@ yt-dlp
 ffmpeg-python
 playwright
 httpx
+google-genai
 redis
 pytest
 pytest-asyncio

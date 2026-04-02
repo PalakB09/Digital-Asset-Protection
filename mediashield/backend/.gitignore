@@ -1,0 +1,45 @@
+# Secrets
+.env
+.env.local
+.env.*.local
+
+# Virtual env
+venv/
+.venv/
+env/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+.eggs/
+dist/
+build/
+*.egg
+
+# Tests / coverage
+.pytest_cache/
+.coverage
+htmlcov/
+.mypy_cache/
+.ruff_cache/
+
+# Local data (uploads, DB, vector index — do not commit)
+storage/
+
+# IDE / OS
+.idea/
+.vscode/
+*.swp
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Playwright / browser artifacts (if any)
+playwright-report/
+test-results/

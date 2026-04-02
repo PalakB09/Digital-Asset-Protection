@@ -10,6 +10,8 @@ export interface Asset {
   violation_count: number;
   asset_type?: string;
   frame_count?: number;
+  /** Gemini-generated discovery phrases stored on the asset */
+  keywords?: string[];
 }
 
 export interface Violation {
@@ -105,6 +107,21 @@ export async function registerVideoAsset(file: File): Promise<Asset> {
   const res = await fetch(`${API_BASE}/assets/video`, {
     method: "POST",
     body: formData,
+  });
+  if (!res.ok) throw new Error(await res.text());
+  return res.json();
+}
+
+/** Register original asset from URL (image or video page / direct file). */
+export async function registerAssetFromUrl(
+  sourceUrl: string,
+  mediaType: "auto" | "image" | "video" = "auto"
+): Promise<Asset & { source_url?: string; message?: string }> {
+  const params = new URLSearchParams();
+  params.append("source_url", sourceUrl.trim());
+  params.append("media_type", mediaType);
+  const res = await fetch(`${API_BASE}/assets/from-url?${params.toString()}`, {
+    method: "POST",
   });
   if (!res.ok) throw new Error(await res.text());
   return res.json();

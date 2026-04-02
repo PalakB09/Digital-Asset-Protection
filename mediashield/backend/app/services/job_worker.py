@@ -94,7 +94,7 @@ async def _process_job(job: Job, attempt: int):
 # ---------------------------------------------------------------------------
 async def _process_image_url_job(job: Job, stage_results: dict) -> dict:
     """Download an image from URL, run full detection pipeline."""
-    from app.routers.scan import _download_image_from_url
+    from app.services.url_media_fetch import download_image_from_url
     from app.database import SessionLocal
     from PIL import Image as PILImage
 
@@ -107,7 +107,7 @@ async def _process_image_url_job(job: Job, stage_results: dict) -> dict:
         return {"matched": False, "message": "Duplicate URL — already processed", "deduplicated": True}
 
     # Download
-    image_path, content_type = _download_image_from_url(source_url)
+    image_path, content_type = download_image_from_url(source_url)
     if not image_path:
         raise ValueError("Unable to download image from URL")
 
@@ -167,7 +167,7 @@ async def _process_image_url_job(job: Job, stage_results: dict) -> dict:
 # ---------------------------------------------------------------------------
 async def _process_video_url_job(job: Job, stage_results: dict) -> dict:
     """Download a video from URL, run frame-based detection pipeline."""
-    from app.routers.scan import _download_video_from_url
+    from app.services.url_media_fetch import download_video_from_url
     from app.database import SessionLocal
     from app.services.video_matcher import match_video
     from uuid import uuid4
@@ -179,7 +179,7 @@ async def _process_video_url_job(job: Job, stage_results: dict) -> dict:
     if is_duplicate(url_hash):
         return {"matched": False, "message": "Duplicate URL — already processed", "deduplicated": True}
 
-    video_path = _download_video_from_url(source_url)
+    video_path = download_video_from_url(source_url)
     if not video_path:
         raise ValueError("Unable to download video from URL")
 
