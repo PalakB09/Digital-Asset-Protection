@@ -15,6 +15,7 @@ UPLOAD_DIR = BASE_DIR / "storage" / "originals"
 VIOLATION_DIR = BASE_DIR / "storage" / "violations"
 DMCA_DIR = BASE_DIR / "storage" / "dmca"
 CHROMA_DIR = BASE_DIR / "storage" / "chroma_db"
+TELEGRAM_DIR = BASE_DIR / "storage" / "telegram"
 
 # Database
 DATABASE_URL = f"sqlite:///{BASE_DIR / 'storage' / 'mediashield.db'}"
@@ -47,6 +48,31 @@ GEMINI_API_KEY = (os.environ.get("GEMINI_API_KEY", "") or "").strip().lstrip("\u
 # Default Gemini model for keyword generation (code-defined; not from .env)
 GEMINI_MODEL = "models/gemini-2.5-flash-lite"
 
+
+def _int_env(name: str, default: int = 0) -> int:
+    v = (os.environ.get(name, "") or "").strip()
+    if not v:
+        return default
+    try:
+        return int(v)
+    except ValueError:
+        return default
+
+
+# Telegram (Telethon — user account; see scripts/telegram_login.py and TELEGRAM_SETUP.md)
+TELEGRAM_API_ID = _int_env("TELEGRAM_API_ID", 0)
+TELEGRAM_API_HASH = (os.environ.get("TELEGRAM_API_HASH", "") or "").strip()
+TELEGRAM_PHONE = (os.environ.get("TELEGRAM_PHONE", "") or "").strip()
+TELEGRAM_SESSION_NAME = (os.environ.get("TELEGRAM_SESSION_NAME", "mediashield") or "mediashield").strip()
+# Telethon expects session path WITHOUT the .session suffix
+TELEGRAM_SESSION_PATH = TELEGRAM_DIR / TELEGRAM_SESSION_NAME
+TELEGRAM_MAX_DOWNLOAD_MB = _int_env("TELEGRAM_MAX_DOWNLOAD_MB", 50) or 50
+
+
+def telegram_configured() -> bool:
+    return TELEGRAM_API_ID > 0 and bool(TELEGRAM_API_HASH)
+
+
 # Create directories on import
-for d in [UPLOAD_DIR, VIOLATION_DIR, DMCA_DIR, CHROMA_DIR]:
+for d in [UPLOAD_DIR, VIOLATION_DIR, DMCA_DIR, CHROMA_DIR, TELEGRAM_DIR]:
     d.mkdir(parents=True, exist_ok=True)

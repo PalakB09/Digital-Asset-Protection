@@ -18,6 +18,7 @@ ffmpeg-python
 playwright
 httpx
 google-genai
+telethon
 redis
 pytest
 pytest-asyncio

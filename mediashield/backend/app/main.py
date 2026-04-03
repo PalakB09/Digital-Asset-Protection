@@ -8,7 +8,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.database import init_db
-from app.routers import assets, scan, violations, graph, monitoring, webhooks
+from app.routers import assets, scan, violations, graph, monitoring, webhooks, telegram
 from app.routers import jobs as jobs_router
 from app.services.monitoring import monitoring_worker
 from app.services.job_worker import job_worker
@@ -51,6 +51,7 @@ app.include_router(graph.router, prefix="/api")
 app.include_router(monitoring.router, prefix="/api")
 app.include_router(webhooks.router, prefix="/api")
 app.include_router(jobs_router.router, prefix="/api")
+app.include_router(telegram.router, prefix="/api")
 
 
 @app.get("/api/health")
