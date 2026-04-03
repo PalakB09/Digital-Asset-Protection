@@ -5,7 +5,11 @@ import traceback
 try:
     with TestClient(app, raise_server_exceptions=True) as client:
         with open('test_original.jpg', 'rb') as f:
-            r = client.post('/api/assets', files={'file': ('test_original.jpg', f, 'image/jpeg')})
+            r = client.post(
+                '/api/assets',
+                files={'file': ('test_original.jpg', f, 'image/jpeg')},
+                data={'description': 'Manual test upload script asset description'},
+            )
             print(r.status_code)
             print(r.text)
 except Exception as e:

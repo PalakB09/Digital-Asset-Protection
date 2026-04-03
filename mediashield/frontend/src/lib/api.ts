@@ -12,6 +12,8 @@ export interface Asset {
   frame_count?: number;
   /** Gemini-generated discovery phrases stored on the asset */
   keywords?: string[];
+  /** User-provided text used to generate keywords (Twitter, Telegram, etc.) */
+  description?: string | null;
 }
 
 export interface Violation {
@@ -74,9 +76,10 @@ export interface Stats {
 
 // ─── Assets ────────────────────────────────────────────────────
 
-export async function registerAsset(file: File): Promise<Asset> {
+export async function registerAsset(file: File, description?: string): Promise<Asset> {
   const formData = new FormData();
   formData.append("file", file);
+  formData.append("description", (description ?? "").trim());
   const res = await fetch(`${API_BASE}/assets`, {
     method: "POST",
     body: formData,
@@ -97,13 +100,21 @@ export async function getAsset(id: string): Promise<Asset> {
   return res.json();
 }
 
+/** Permanently delete an asset (file, embeddings, violations). */
+export async function deleteAsset(id: string): Promise<{ deleted: boolean; id: string }> {
+  const res = await fetch(`${API_BASE}/assets/${id}`, { method: "DELETE" });
+  if (!res.ok) throw new Error(await res.text());
+  return res.json();
+}
+
 export function getAssetImageUrl(id: string): string {
   return `${API_BASE}/assets/${id}/image`;
 }
 
-export async function registerVideoAsset(file: File): Promise<Asset> {
+export async function registerVideoAsset(file: File, description?: string): Promise<Asset> {
   const formData = new FormData();
   formData.append("file", file);
+  formData.append("description", (description ?? "").trim());
   const res = await fetch(`${API_BASE}/assets/video`, {
     method: "POST",
     body: formData,
@@ -115,13 +126,17 @@ export async function registerVideoAsset(file: File): Promise<Asset> {
 /** Register original asset from URL (image or video page / direct file). */
 export async function registerAssetFromUrl(
   sourceUrl: string,
-  mediaType: "auto" | "image" | "video" = "auto"
+  mediaType: "auto" | "image" | "video" = "auto",
+  description?: string
 ): Promise<Asset & { source_url?: string; message?: string }> {
-  const params = new URLSearchParams();
-  params.append("source_url", sourceUrl.trim());
-  params.append("media_type", mediaType);
-  const res = await fetch(`${API_BASE}/assets/from-url?${params.toString()}`, {
+  const res = await fetch(`${API_BASE}/assets/from-url`, {
     method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      source_url: sourceUrl.trim(),
+      media_type: mediaType,
+      description: (description ?? "").trim(),
+    }),
   });
   if (!res.ok) throw new Error(await res.text());
   return res.json();

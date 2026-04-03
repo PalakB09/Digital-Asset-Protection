@@ -44,8 +44,8 @@ CLIP_MODEL_NAME = "openai/clip-vit-base-patch32"
 
 # Gemini (keywords)
 GEMINI_API_KEY = (os.environ.get("GEMINI_API_KEY", "") or "").strip().lstrip("\ufeff").strip('"').strip("'")
-# Lightest vision-capable model for keyword generation (code-defined; not from .env)
-GEMINI_MODEL = "models/gemini-2.0-flash-lite"
+# Default Gemini model for keyword generation (code-defined; not from .env)
+GEMINI_MODEL = "models/gemini-2.5-flash-lite"
 
 # Create directories on import
 for d in [UPLOAD_DIR, VIOLATION_DIR, DMCA_DIR, CHROMA_DIR]:

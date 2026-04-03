@@ -12,24 +12,22 @@ import hashlib
 import mimetypes
 from urllib.parse import urlparse
 from uuid import uuid4
-from fastapi import APIRouter, UploadFile, File, Depends, HTTPException, Query
+from fastapi import APIRouter, UploadFile, File, Form, Depends, HTTPException
+from pydantic import BaseModel, Field, field_validator
 from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 from PIL import Image
 
 from app.database import get_db
-from app.config import UPLOAD_DIR, VIDEO_FRAMES
+from app.config import UPLOAD_DIR, VIDEO_FRAMES, VIOLATION_DIR
 from app.models.asset import Asset
-from app.models.violation import Violation
+from app.models.violation import Violation, PropagationEdge
 from app.services.fingerprint import compute_phash, compute_embedding
 from app.services.watermark import embed_watermark
 from app.services import vector_store
 from app.services.video_fingerprint import compute_video_fingerprint
 from app.services.vector_store import add_video_frames
-from app.services.gemini_keywords import (
-    generate_keywords_from_images,
-    generate_keywords_for_video_frames,
-)
+from app.services.gemini_keywords import generate_keywords_from_description
 from app.services.url_media_fetch import (
     is_video_url,
     download_image_from_url,
@@ -39,16 +37,60 @@ from app.services.url_media_fetch import (
 router = APIRouter(prefix="/assets", tags=["Assets"])
 log = logging.getLogger(__name__)
 
+DESC_MAX_STORE = 10000
 
-def _log_asset_keywords(source: str, asset_id: str, keywords: list[str], name: str) -> None:
-    if not keywords:
-        log.warning(
-            "[assets:%s] no AI keywords stored asset_id=%s name=%r — see app.services.gemini_keywords logs "
-            "(GEMINI_API_KEY in backend/.env, model, API errors)",
-            source,
-            asset_id,
-            (name or "")[:120],
+
+def _require_description(description: str | None) -> str:
+    """Non-empty trimmed user content about the asset (required for registration)."""
+    d = (description or "").strip()
+    if not d:
+        raise HTTPException(
+            status_code=400,
+            detail="description is required: add a short note about what this asset is (used for discovery keywords)",
         )
+    return d[:DESC_MAX_STORE]
+
+
+def _stored_description(description: str | None) -> str | None:
+    d = (description or "").strip()
+    if not d:
+        return None
+    return d[:DESC_MAX_STORE]
+
+
+async def _keywords_from_description(description: str, title_hint: str) -> tuple[list[str], str | None]:
+    """Text-only Gemini from user description (no image/video analysis)."""
+    d = (description or "").strip()
+    if not d:
+        return [], None
+    kw = await asyncio.to_thread(
+        generate_keywords_from_description,
+        d,
+        title_hint or "",
+    )
+    return kw, (json.dumps(kw) if kw else None)
+
+
+def _log_asset_keywords(
+    source: str, asset_id: str, keywords: list[str], name: str, *, had_description: bool
+) -> None:
+    if not keywords:
+        if not had_description:
+            log.warning(
+                "[assets:%s] no AI keywords asset_id=%s name=%r — add an asset description at registration "
+                "(keywords are generated from your text, not from pixels; saves vision API quota)",
+                source,
+                asset_id,
+                (name or "")[:120],
+            )
+        else:
+            log.warning(
+                "[assets:%s] no AI keywords stored asset_id=%s name=%r — see app.services.gemini_keywords logs "
+                "(GEMINI_API_KEY in backend/.env, model quota, API errors)",
+                source,
+                asset_id,
+                (name or "")[:120],
+            )
     else:
         log.info(
             "[assets:%s] stored %d AI keywords asset_id=%s name=%r",
@@ -60,11 +102,18 @@ def _log_asset_keywords(source: str, asset_id: str, keywords: list[str], name: s
 
 
 @router.post("")
-async def register_asset(file: UploadFile = File(...), db: Session = Depends(get_db)):
+async def register_asset(
+    file: UploadFile = File(...),
+    description: str = Form(""),
+    db: Session = Depends(get_db),
+):
     """
     Upload and register an original image asset.
     Generates pHash + CLIP embedding, stores in DB + ChromaDB.
+    Discovery keywords come from the required `description` field (text-only Gemini), not from image pixels.
     """
+    desc = _require_description(description)
+
     # Validate file type
     if not file.content_type or not file.content_type.startswith("image/"):
         raise HTTPException(status_code=400, detail="Only image files are accepted")
@@ -92,13 +141,17 @@ async def register_asset(file: UploadFile = File(...), db: Session = Depends(get
     phash = compute_phash(watermarked)
     embedding = compute_embedding(watermarked)
 
-    keywords = await asyncio.to_thread(
-        generate_keywords_from_images,
-        [watermarked],
-        file.filename or "",
+    desc_stored = _stored_description(desc)
+    keywords, keywords_json = await _keywords_from_description(
+        desc, file.filename or ""
     )
-    keywords_json = json.dumps(keywords) if keywords else None
-    _log_asset_keywords("register_image", asset_id, keywords, file.filename or "")
+    _log_asset_keywords(
+        "register_image",
+        asset_id,
+        keywords,
+        file.filename or "",
+        had_description=bool(desc_stored),
+    )
 
     # Store embedding in ChromaDB
     vector_store.add_embedding(asset_id, embedding)
@@ -112,6 +165,7 @@ async def register_asset(file: UploadFile = File(...), db: Session = Depends(get
         embedding_id=asset_id,
         watermark_key=hashlib.sha256(asset_id.encode("utf-8")).hexdigest()[:32],
         keywords=keywords_json,
+        description=desc_stored,
     )
     db.add(asset)
     db.commit()
@@ -123,7 +177,8 @@ async def register_asset(file: UploadFile = File(...), db: Session = Depends(get
         "phash": asset.phash,
         "keywords": asset.keywords_list(),
         "created_at": asset.created_at.isoformat() if asset.created_at else None,
-        "message": "Asset registered successfully — trackable with fingerprints + AI keywords",
+        "description": asset.description,
+        "message": "Asset registered — fingerprints + discovery keywords from your description",
     }
 
 
@@ -155,6 +210,58 @@ async def get_asset(asset_id: str, db: Session = Depends(get_db)):
     }
 
 
+def _safe_remove_file(path: str) -> None:
+    try:
+        if path and os.path.isfile(path):
+            os.remove(path)
+    except OSError:
+        pass
+
+
+@router.delete("/{asset_id}")
+async def delete_asset(asset_id: str, db: Session = Depends(get_db)):
+    """
+    Permanently remove an asset: database row, stored original file, Chroma embeddings,
+    and all violations / propagation edges that reference this asset.
+    """
+    asset = db.query(Asset).filter(Asset.id == asset_id).first()
+    if not asset:
+        raise HTTPException(status_code=404, detail="Asset not found")
+
+    name_preview = (asset.name or "")[:120]
+    violations = db.query(Violation).filter(Violation.asset_id == asset_id).all()
+    vids = [v.id for v in violations]
+
+    if vids:
+        db.query(PropagationEdge).filter(PropagationEdge.violation_id.in_(vids)).delete(
+            synchronize_session=False
+        )
+    db.query(PropagationEdge).filter(PropagationEdge.source_asset_id == asset_id).delete(
+        synchronize_session=False
+    )
+
+    for v in violations:
+        fp = os.path.join(str(VIOLATION_DIR), os.path.basename(v.image_path or ""))
+        _safe_remove_file(fp)
+        db.delete(v)
+
+    is_video = (asset.asset_type or "").lower() == "video"
+    if is_video:
+        n = asset.frame_count if (asset.frame_count and asset.frame_count > 0) else VIDEO_FRAMES
+        vector_store.delete_video_frames(asset_id, n)
+    else:
+        vector_store.delete_embedding(asset_id)
+
+    orig_path = os.path.join(str(UPLOAD_DIR), os.path.basename(asset.original_path))
+    _safe_remove_file(orig_path)
+
+    db.delete(asset)
+    db.commit()
+
+    log.info("[assets:delete] removed asset_id=%s name=%r", asset_id, name_preview)
+    return {"deleted": True, "id": asset_id}
+
+
 @router.get("/{asset_id}/image")
 async def get_asset_image(asset_id: str, db: Session = Depends(get_db)):
     """Serve the original image for an asset."""
@@ -172,13 +279,35 @@ async def get_asset_image(asset_id: str, db: Session = Depends(get_db)):
 
 VIDEO_MIME_TYPES = {"video/mp4", "video/mpeg", "video/quicktime", "video/x-msvideo", "video/webm"}
 
+
+class RegisterFromUrlRequest(BaseModel):
+    source_url: str = Field(..., min_length=8, description="http(s) URL to image, video page, or direct video")
+    media_type: str = Field("auto", description="auto | image | video")
+    description: str = Field("", max_length=DESC_MAX_STORE, description="Required: what this asset is")
+
+    @field_validator("description")
+    @classmethod
+    def description_required(cls, v: str) -> str:
+        s = (v or "").strip()
+        if not s:
+            raise ValueError("description is required: briefly describe this asset")
+        return s[:DESC_MAX_STORE]
+
+
 @router.post("/video")
-async def register_video_asset(file: UploadFile = File(...), db: Session = Depends(get_db)):
+async def register_video_asset(
+    file: UploadFile = File(...),
+    description: str = Form(""),
+    db: Session = Depends(get_db),
+):
     """
     Upload and register an original video asset.
     Extracts VIDEO_FRAMES uniform frames, computes CLIP embeddings for each,
     stores all frame embeddings in ChromaDB video collection.
+    Keywords are generated from the required `description` (text-only), not from sampled frames.
     """
+    desc = _require_description(description)
+
     if not file.content_type or file.content_type not in VIDEO_MIME_TYPES:
         raise HTTPException(status_code=400, detail="Only video files are accepted (mp4, mpeg, mov, avi, webm)")
 
@@ -196,14 +325,17 @@ async def register_video_asset(file: UploadFile = File(...), db: Session = Depen
         os.remove(filepath)
         raise HTTPException(status_code=400, detail=f"Could not process video: {str(e)}")
 
-    keywords = await asyncio.to_thread(
-        generate_keywords_for_video_frames,
-        filepath,
-        file.filename or "",
-        3,
+    desc_stored = _stored_description(desc)
+    keywords, keywords_json = await _keywords_from_description(
+        desc, file.filename or ""
     )
-    keywords_json = json.dumps(keywords) if keywords else None
-    _log_asset_keywords("register_video", asset_id, keywords, file.filename or "")
+    _log_asset_keywords(
+        "register_video",
+        asset_id,
+        keywords,
+        file.filename or "",
+        had_description=bool(desc_stored),
+    )
 
     # Store all frame embeddings in video collection
     add_video_frames(asset_id, embeddings)
@@ -218,6 +350,7 @@ async def register_video_asset(file: UploadFile = File(...), db: Session = Depen
         asset_type="video",
         frame_count=frame_count,
         keywords=keywords_json,
+        description=desc_stored,
     )
     db.add(asset)
     db.commit()
@@ -231,19 +364,21 @@ async def register_video_asset(file: UploadFile = File(...), db: Session = Depen
         "frame_count": frame_count,
         "keywords": asset.keywords_list(),
         "created_at": asset.created_at.isoformat() if asset.created_at else None,
-        "message": f"Video asset registered with {frame_count} frames + AI keywords",
+        "description": asset.description,
+        "message": f"Video registered — {frame_count} frames embedded; discovery keywords from your description",
     }
 
 
 @router.post("/from-url")
-async def register_asset_from_url(
-    source_url: str = Query(..., description="http(s) URL to image, video page, or direct video"),
-    media_type: str = Query("auto", description="auto | image | video"),
-    db: Session = Depends(get_db),
-):
+async def register_asset_from_url(body: RegisterFromUrlRequest, db: Session = Depends(get_db)):
     """
-    Register an original asset by downloading from a URL (same fingerprints + keywords as file upload).
+    Register an original asset by downloading from a URL (same fingerprints as file upload).
+    Keywords are generated from `description` (text-only Gemini), not from downloaded media pixels.
     """
+    source_url = body.source_url.strip()
+    media_type = (body.media_type or "auto").strip().lower() or "auto"
+    description = body.description
+
     if not source_url.startswith(("http://", "https://")):
         raise HTTPException(status_code=400, detail="source_url must be http/https")
 
@@ -280,14 +415,15 @@ async def register_asset_from_url(
             os.remove(filepath)
             raise HTTPException(status_code=400, detail=f"Could not process video: {str(e)}")
 
-        keywords = await asyncio.to_thread(
-            generate_keywords_for_video_frames,
-            filepath,
+        desc_stored = _stored_description(description)
+        keywords, keywords_json = await _keywords_from_description(description, display_name)
+        _log_asset_keywords(
+            "register_url_video",
+            asset_id,
+            keywords,
             display_name,
-            3,
+            had_description=bool(desc_stored),
         )
-        keywords_json = json.dumps(keywords) if keywords else None
-        _log_asset_keywords("register_url_video", asset_id, keywords, display_name)
 
         add_video_frames(asset_id, embeddings)
 
@@ -300,6 +436,7 @@ async def register_asset_from_url(
             asset_type="video",
             frame_count=frame_count,
             keywords=keywords_json,
+            description=desc_stored,
         )
         db.add(asset)
         db.commit()
@@ -314,7 +451,8 @@ async def register_asset_from_url(
             "frame_count": frame_count,
             "keywords": asset.keywords_list(),
             "created_at": asset.created_at.isoformat() if asset.created_at else None,
-            "message": f"Video registered from URL — {frame_count} frames + AI keywords",
+            "description": asset.description,
+            "message": f"Video registered from URL — {frame_count} frames; keywords from your description",
         }
 
     # Image path
@@ -352,13 +490,15 @@ async def register_asset_from_url(
     phash = compute_phash(watermarked)
     embedding = compute_embedding(watermarked)
 
-    keywords = await asyncio.to_thread(
-        generate_keywords_from_images,
-        [watermarked],
+    desc_stored = _stored_description(description)
+    keywords, keywords_json = await _keywords_from_description(description, display_name)
+    _log_asset_keywords(
+        "register_url_image",
+        asset_id,
+        keywords,
         display_name,
+        had_description=bool(desc_stored),
     )
-    keywords_json = json.dumps(keywords) if keywords else None
-    _log_asset_keywords("register_url_image", asset_id, keywords, display_name)
 
     vector_store.add_embedding(asset_id, embedding)
 
@@ -370,6 +510,7 @@ async def register_asset_from_url(
         embedding_id=asset_id,
         watermark_key=hashlib.sha256(asset_id.encode("utf-8")).hexdigest()[:32],
         keywords=keywords_json,
+        description=desc_stored,
     )
     db.add(asset)
     db.commit()
@@ -382,5 +523,6 @@ async def register_asset_from_url(
         "phash": asset.phash,
         "keywords": asset.keywords_list(),
         "created_at": asset.created_at.isoformat() if asset.created_at else None,
-        "message": "Image registered from URL — fingerprints + AI keywords",
+        "description": asset.description,
+        "message": "Image registered from URL — fingerprints; discovery keywords from your description",
     }

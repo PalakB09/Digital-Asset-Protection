@@ -37,12 +37,28 @@ Example (illustrative only):
 ["IPL 2026 highlights", "CSK vs MI reel", "match clip short"]
 """
 
+_DESCRIPTION_PROMPT = """You help rights-holders find unauthorized copies of their content on social and messaging platforms.
+
+The owner described their protected asset:
+---
+{description}
+---
+Optional context (filename or URL — may be noisy): {hint}
+
+Generate 8–14 short search phrases (2–6 words each) useful for monitoring:
+X (Twitter), Telegram (channels and public search), Instagram, TikTok, Facebook, Reddit, and general web search.
+Use only facts implied by the description — do not invent names, events, or titles.
+Include natural queries and terms people might use when posting or searching similar content.
+
+Respond with ONLY a valid JSON array of strings. No markdown, no explanation.
+"""
+
 
 def _normalize_model_id(model: str) -> str:
     m = (model or "").strip()
     if m.startswith("models/"):
         m = m[len("models/") :]
-    return m or "gemini-2.0-flash"
+    return m or "gemini-2.5-flash-lite"
 
 
 def _parse_json_array(text: str, *, ctx: str = "") -> list[str]:
@@ -116,6 +132,89 @@ def _log_gemini_response(resp: object, model_id: str) -> None:
             fr,
             sr,
         )
+
+
+def generate_keywords_from_description(user_description: str, title_hint: str = "") -> list[str]:
+    """
+    Text-only Gemini call from the rights-holder's description (no image/video input).
+    Lower token cost than vision; suitable when vision quota is exhausted.
+    """
+    text = (user_description or "").strip()
+    ctx = f"hint={title_hint[:120]!r}" if title_hint else "hint=(none)"
+    if not GEMINI_API_KEY:
+        log.warning(
+            "[gemini_keywords] skip description path: GEMINI_API_KEY missing | %s",
+            ctx,
+        )
+        return []
+    if not text:
+        log.warning("[gemini_keywords] skip description path: empty description | %s", ctx)
+        return []
+
+    try:
+        from google import genai
+        from google.genai import types
+    except ImportError:
+        log.warning("[gemini_keywords] skip: google-genai not installed (pip install google-genai)")
+        return []
+
+    model_id = _normalize_model_id(GEMINI_MODEL)
+    prompt = _DESCRIPTION_PROMPT.format(
+        description=text[:8000],
+        hint=(title_hint or "").strip()[:500] or "(none)",
+    )
+    log.info(
+        "[gemini_keywords] description-only start model_id=%s desc_len=%d %s",
+        model_id,
+        len(text),
+        ctx,
+    )
+    client = genai.Client(api_key=GEMINI_API_KEY)
+
+    try:
+        resp = client.models.generate_content(
+            model=model_id,
+            contents=prompt,
+            config=types.GenerateContentConfig(
+                temperature=0.35,
+                max_output_tokens=512,
+            ),
+        )
+    except Exception as e:
+        log.warning(
+            "[gemini_keywords] description API error model_id=%s %s: %s",
+            model_id,
+            ctx,
+            e,
+            exc_info=True,
+        )
+        return []
+
+    _log_gemini_response(resp, model_id)
+
+    out_text = ""
+    try:
+        out_text = (resp.text or "").strip()
+    except Exception as ex:
+        log.warning(
+            "[gemini_keywords] could not read resp.text (description) model_id=%s %s: %s",
+            model_id,
+            ctx,
+            ex,
+        )
+        out_text = ""
+    if not out_text:
+        log.warning(
+            "[gemini_keywords] empty text from model (description) model_id=%s %s",
+            model_id,
+            ctx,
+        )
+        return []
+
+    parsed = _parse_json_array(out_text, ctx=f"description model={model_id} {ctx}")
+    if parsed:
+        log.info("[gemini_keywords] description success count=%d model_id=%s %s", len(parsed), model_id, ctx)
+    return parsed
 
 
 def generate_keywords_from_images(images: list[Image.Image], filename_hint: str = "") -> list[str]:

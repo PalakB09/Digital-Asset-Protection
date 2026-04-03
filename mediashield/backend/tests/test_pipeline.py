@@ -30,6 +30,9 @@ from PIL import Image
 # Ensure the backend package is importable
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
+# Required by POST /api/assets (user content about the asset)
+_TEST_ASSET_DESCRIPTION = "Pipeline test asset description for keyword generation"
+
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -143,6 +146,7 @@ async def test_2a_same_image_match(client):
     resp = await client.post(
         "/api/assets",
         files={"file": ("test_original.jpg", original, "image/jpeg")},
+        data={"description": _TEST_ASSET_DESCRIPTION},
     )
     assert resp.status_code == 200, f"Asset registration failed: {resp.text}"
     asset = resp.json()
@@ -170,6 +174,7 @@ async def test_2b_modified_image_match(client):
     resp = await client.post(
         "/api/assets",
         files={"file": ("original.jpg", original, "image/jpeg")},
+        data={"description": _TEST_ASSET_DESCRIPTION},
     )
     assert resp.status_code == 200
     asset_id = resp.json()["id"]
@@ -214,6 +219,7 @@ async def test_2c_different_image_no_match(client):
     resp = await client.post(
         "/api/assets",
         files={"file": ("pattern1.jpg", original, "image/jpeg")},
+        data={"description": _TEST_ASSET_DESCRIPTION},
     )
     assert resp.status_code == 200
 
@@ -312,6 +318,7 @@ async def test_5_db_status(client, db):
     resp = await client.post(
         "/api/assets",
         files={"file": ("db_test.jpg", original, "image/jpeg")},
+        data={"description": _TEST_ASSET_DESCRIPTION},
     )
     assert resp.status_code == 200
 
@@ -445,6 +452,7 @@ async def test_8_end_to_end(client, db):
     resp = await client.post(
         "/api/assets",
         files={"file": ("e2e_original.jpg", original, "image/jpeg")},
+        data={"description": _TEST_ASSET_DESCRIPTION},
     )
     assert resp.status_code == 200
 

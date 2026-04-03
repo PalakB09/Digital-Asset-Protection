@@ -59,6 +59,8 @@ def _run_sqlite_migrations():
             conn.exec_driver_sql("ALTER TABLE assets ADD COLUMN watermark_key VARCHAR")
         if "keywords" not in asset_cols:
             conn.exec_driver_sql("ALTER TABLE assets ADD COLUMN keywords TEXT")
+        if "description" not in asset_cols:
+            conn.exec_driver_sql("ALTER TABLE assets ADD COLUMN description TEXT")
 
         violation_cols = _table_columns(conn, "violations")
         if "watermark_verified" not in violation_cols:
