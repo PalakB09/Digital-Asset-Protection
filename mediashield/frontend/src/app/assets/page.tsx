@@ -384,6 +384,9 @@ export default function AssetsPage() {
                       🕸️ View Propagation Graph
                     </a>
                   )}
+                  <a href={`/assets/${asset.id}`} className="btn btn-secondary w-full justify-center text-xs" style={{ background: "rgba(108, 99, 255, 0.1)", color: "var(--accent-primary)" }}>
+                    🛡️ Manage Distribution
+                  </a>
                   <button
                     type="button"
                     className="btn w-full justify-center text-xs"

@@ -10,6 +10,9 @@ from __future__ import annotations
 
 import numpy as np
 from PIL import Image
+import cv2
+import os
+import shutil
 
 BLOCK_SIZE = 8
 COEFF_A = (4, 3)
@@ -189,3 +192,109 @@ def extract_watermark(
         return payload_bytes[:payload_len].decode("utf-8")
     except Exception:
         return None
+
+def embed_watermark_video(
+    input_video_path: str,
+    output_video_path: str,
+    payload: str,
+    strength: float = DEFAULT_STRENGTH,
+    repeat: int = DEFAULT_REPEAT,
+) -> bool:
+    """
+    Extracts frames from input video, watermarks them using embed_watermark logic, 
+    and writes to output_video_path without relying on complex ffmpeg chains.
+    Returns True on success.
+    """
+    cap = cv2.VideoCapture(input_video_path)
+    if not cap.isOpened():
+        return False
+
+    fps = cap.get(cv2.CAP_PROP_FPS)
+    if fps <= 0:
+        fps = 30.0
+    width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+    height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+    
+    fourcc = cv2.VideoWriter_fourcc(*'mp4v') # type: ignore
+    out = cv2.VideoWriter(output_video_path, fourcc, fps, (width, height))
+    
+    if not out.isOpened():
+        cap.release()
+        return False
+
+    try:
+        # Precompute the payload bits once
+        bits = _payload_bits(payload)
+        cap_bits = _capacity_bits(width, height, repeat)
+        if cap_bits < len(bits):
+            # Not enough capacity, write unmodified
+            while True:
+                ret, frame = cap.read()
+                if not ret: break
+                out.write(frame)
+            return True
+
+        positions = list(_iter_block_positions(width, height))
+        
+        while True:
+            ret, frame_bgr = cap.read()
+            if not ret:
+                break
+            
+            # The original embed_watermark modifies blue channel of RGB via PIL. 
+            # CV2 is BGR. So blue channel is arr[:, :, 0]
+            arr = frame_bgr.astype(np.float32)
+            ch = arr[:, :, 0] # blue channel
+
+            idx = 0
+            for bit in bits:
+                for _ in range(repeat):
+                    y, x = positions[idx]
+                    idx += 1
+
+                    block = ch[y : y + BLOCK_SIZE, x : x + BLOCK_SIZE] - 128.0
+                    coeff = _dct2(block)
+
+                    a = coeff[COEFF_A]
+                    b = coeff[COEFF_B]
+                    gap = abs(a - b)
+
+                    target_gap = max(strength, gap)
+                    mid = (a + b) / 2.0
+                    if bit == 1:
+                        coeff[COEFF_A] = mid + target_gap / 2.0
+                        coeff[COEFF_B] = mid - target_gap / 2.0
+                    else:
+                        coeff[COEFF_A] = mid - target_gap / 2.0
+                        coeff[COEFF_B] = mid + target_gap / 2.0
+
+                    out_block = _idct2(coeff) + 128.0
+                    ch[y : y + BLOCK_SIZE, x : x + BLOCK_SIZE] = out_block
+
+            arr[:, :, 0] = np.clip(ch, 0, 255)
+            out.write(arr.astype(np.uint8))
+            
+    finally:
+        cap.release()
+        out.release()
+
+    return True
+
+def extract_watermark_video(video_path: str, max_frames: int = 15) -> str | None:
+    """Attempt to extract watermark payload from the first few frames of a video."""
+    cap = cv2.VideoCapture(video_path)
+    if not cap.isOpened():
+        return None
+    try:
+        for _ in range(max_frames):
+            ret, frame = cap.read()
+            if not ret: break
+            
+            rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+            pil_img = Image.fromarray(rgb)
+            payload = extract_watermark(pil_img)
+            if payload:
+                return payload
+        return None
+    finally:
+        cap.release()

@@ -43,6 +43,20 @@ export default function ViolationsPage() {
     }
   }
 
+  function getSeverityColor(confidence: number, tier?: string) {
+    if (tier === "HIGH" || confidence >= 0.9) return "var(--danger)";
+    if (confidence >= 0.7) return "#f59e0b"; // amber
+    if (confidence >= 0.4) return "#3b82f6"; // blue
+    return "var(--success)";
+  }
+
+  function getSeverityLabel(confidence: number, tier?: string) {
+    if (tier === "HIGH" || confidence >= 0.9) return "CRITICAL";
+    if (confidence >= 0.7) return "HIGH";
+    if (confidence >= 0.4) return "MEDIUM";
+    return "LOW";
+  }
+
   return (
     <div>
       <div className="mb-8">
@@ -107,8 +121,15 @@ export default function ViolationsPage() {
                 {/* Details */}
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 mb-2">
+                    <span className="badge font-bold text-[10px]" style={{
+                      background: "transparent",
+                      color: getSeverityColor(v.confidence, v.match_tier),
+                      border: `1px solid ${getSeverityColor(v.confidence, v.match_tier)}`
+                    }}>
+                      • {getSeverityLabel(v.confidence, v.match_tier)} SEVERITY
+                    </span>
                     <span className={`badge ${v.match_tier === "HIGH" ? "badge-high" : "badge-medium"}`}>
-                      {v.match_tier}
+                      {v.match_tier} TIER
                     </span>
                     <span className="badge" style={{
                       background: "rgba(108, 99, 255, 0.15)",
@@ -117,7 +138,7 @@ export default function ViolationsPage() {
                     }}>
                       {v.match_type.toUpperCase()}
                     </span>
-                    <span className="text-xs" style={{ color: "var(--text-muted)" }}>
+                    <span className="text-xs" style={{ color: "var(--text-muted)", textTransform: "capitalize" }}>
                       {v.platform}
                     </span>
                   </div>
@@ -125,6 +146,12 @@ export default function ViolationsPage() {
                   <p className="font-semibold text-sm mb-1">
                     Matched: <span style={{ color: "var(--accent-primary)" }}>{v.asset_name}</span>
                   </p>
+                  
+                  {v.leaked_by && (
+                    <p className="font-bold text-xs mb-2 px-2 py-1 inline-block rounded" style={{ background: "rgba(220, 38, 38, 0.15)", color: "#f87171", border: "1px solid rgba(220, 38, 38, 0.45)" }}>
+                      🕵️ Leak Source Identified: {v.leaked_by}
+                    </p>
+                  )}
 
                   <div className="flex items-center gap-4 text-xs" style={{ color: "var(--text-secondary)" }}>
                     <span>Confidence: <strong style={{ color: "var(--text-primary)" }}>

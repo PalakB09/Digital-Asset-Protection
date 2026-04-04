@@ -20,6 +20,7 @@ class Violation(Base):
     processing_status = Column(String, default="done")  # pending, processing, done, failed
     detection_stage_results = Column(Text, nullable=True)  # JSON string
     created_at = Column(DateTime, default=datetime.utcnow)
+    leaked_by = Column(String, nullable=True)
 
     def to_dict(self):
         return {
@@ -36,6 +37,7 @@ class Violation(Base):
             "processing_status": self.processing_status,
             "detection_stage_results": self.detection_stage_results,
             "created_at": self.created_at.isoformat() if self.created_at else None,
+            "leaked_by": self.leaked_by,
         }
 
 
@@ -47,6 +49,8 @@ class PropagationEdge(Base):
     violation_id = Column(String, ForeignKey("violations.id"), nullable=False)
     platform = Column(String, default="unknown")
     discovered_at = Column(DateTime, default=datetime.utcnow)
+    leaked_by = Column(String, nullable=True)
+    watermark_id = Column(String, nullable=True)
 
     def to_dict(self):
         return {
@@ -55,4 +59,6 @@ class PropagationEdge(Base):
             "violation_id": self.violation_id,
             "platform": self.platform,
             "discovered_at": self.discovered_at.isoformat() if self.discovered_at else None,
+            "leaked_by": self.leaked_by,
+            "watermark_id": self.watermark_id,
         }

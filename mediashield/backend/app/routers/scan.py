@@ -14,6 +14,7 @@ from app.database import get_db
 from app.config import VIOLATION_DIR
 from app.services.scanner import scan_image
 from app.services.video_matcher import match_video
+from app.services.watermark import extract_watermark_video
 from app.services.alerts import alert_manager
 from app.services.url_media_fetch import is_video_url, download_image_from_url
 
@@ -121,6 +122,28 @@ async def scan_uploaded_video(
             "details": result.details,
         }
 
+    # Try extracting watermark from matched video
+    extracted = extract_watermark_video(filepath)
+    
+    watermark_verified = False
+    attribution = None
+    leaked_by = None
+
+    if extracted:
+        from app.models.asset import AssetRecipient
+        if extracted == result.asset_id:
+            watermark_verified = True
+            attribution = extracted
+        else:
+            recipient = db.query(AssetRecipient).filter(AssetRecipient.watermark_id == extracted).first()
+            if recipient:
+                watermark_verified = True
+                attribution = extracted
+                leaked_by = recipient.recipient_name
+
+    match_tier = "VERIFIED" if watermark_verified else result.match_tier
+    match_type = "watermark" if watermark_verified else result.match_type
+
     # Create violation record (reuse existing Violation model)
     from app.models.violation import Violation, PropagationEdge
     violation_id = str(uuid4())
@@ -130,9 +153,12 @@ async def scan_uploaded_video(
         source_url=source_url,
         platform=platform,
         confidence=result.confidence,
-        match_tier=result.match_tier,
-        match_type=result.match_type,
+        match_tier=match_tier,
+        match_type=match_type,
         image_path=filename,
+        watermark_verified=watermark_verified,
+        attribution=attribution,
+        leaked_by=leaked_by,
     )
     db.add(violation)
     edge = PropagationEdge(
@@ -140,6 +166,8 @@ async def scan_uploaded_video(
         source_asset_id=result.asset_id,
         violation_id=violation_id,
         platform=platform,
+        watermark_id=attribution if watermark_verified else None,
+        leaked_by=leaked_by,
     )
     db.add(edge)
     db.commit()
@@ -151,8 +179,11 @@ async def scan_uploaded_video(
         "asset_id": result.asset_id,
         "asset_name": result.asset_name,
         "confidence": result.confidence,
-        "match_tier": result.match_tier,
-        "match_type": result.match_type,
+        "match_tier": match_tier,
+        "match_type": match_type,
+        "watermark_verified": watermark_verified,
+        "attribution": attribution,
+        "leaked_by": leaked_by,
         "details": result.details,
     }
 

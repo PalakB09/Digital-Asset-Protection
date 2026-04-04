@@ -47,3 +47,43 @@ class Asset(Base):
             "keywords": self.keywords_list(),
             "description": self.description or None,
         }
+
+class AssetRecipient(Base):
+    __tablename__ = "asset_recipients"
+
+    id = Column(String, primary_key=True, default=lambda: str(uuid4()))
+    asset_id = Column(String, nullable=False)
+    recipient_name = Column(String, nullable=False)
+    recipient_identifier = Column(String, nullable=False)
+    watermark_id = Column(String, unique=True, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    def to_dict(self):
+        return {
+            "id": self.id,
+            "asset_id": self.asset_id,
+            "recipient_name": self.recipient_name,
+            "recipient_identifier": self.recipient_identifier,
+            "watermark_id": self.watermark_id,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+        }
+
+class AssetDistribution(Base):
+    __tablename__ = "asset_distributions"
+
+    id = Column(String, primary_key=True, default=lambda: str(uuid4()))
+    asset_id = Column(String, nullable=False)
+    recipient_id = Column(String, nullable=False)
+    watermarked_file_path = Column(String, nullable=False)
+    watermark_id = Column(String, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    def to_dict(self):
+        return {
+            "id": self.id,
+            "asset_id": self.asset_id,
+            "recipient_id": self.recipient_id,
+            "watermarked_file_path": self.watermarked_file_path,
+            "watermark_id": self.watermark_id,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+        }

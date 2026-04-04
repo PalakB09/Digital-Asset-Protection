@@ -14,6 +14,7 @@ if _env_path.is_file():
 UPLOAD_DIR = BASE_DIR / "storage" / "originals"
 VIOLATION_DIR = BASE_DIR / "storage" / "violations"
 DMCA_DIR = BASE_DIR / "storage" / "dmca"
+DISTRIBUTIONS_DIR = BASE_DIR / "storage" / "distributions"
 CHROMA_DIR = BASE_DIR / "storage" / "chroma_db"
 TELEGRAM_DIR = BASE_DIR / "storage" / "telegram"
 
@@ -74,5 +75,5 @@ def telegram_configured() -> bool:
 
 
 # Create directories on import
-for d in [UPLOAD_DIR, VIOLATION_DIR, DMCA_DIR, CHROMA_DIR, TELEGRAM_DIR]:
+for d in [UPLOAD_DIR, VIOLATION_DIR, DMCA_DIR, CHROMA_DIR, TELEGRAM_DIR, DISTRIBUTIONS_DIR]:
     d.mkdir(parents=True, exist_ok=True)

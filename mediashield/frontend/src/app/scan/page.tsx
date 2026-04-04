@@ -12,6 +12,9 @@ export default function ScanPage() {
   const [platform, setPlatform] = useState("unknown");
   const [sourceUrl, setSourceUrl] = useState("");
   const fileRef = useRef<HTMLInputElement>(null);
+  
+  // Track recent scans locally
+  const [recentScans, setRecentScans] = useState<(ScanResult & { timestamp: number; type: string })[]>([]);
 
   function isLikelyVideoUrl(url: string): boolean {
     const lowered = url.toLowerCase();
@@ -40,6 +43,7 @@ export default function ScanPage() {
     try {
       const res = isVideo ? await scanVideo(file, platform) : await scanImage(file, platform);
       setResult(res);
+      setRecentScans((prev) => [{ ...res, timestamp: Date.now(), type: isVideo ? "video" : "image" }, ...prev].slice(0, 5));
     } catch (e) {
       setResult({ matched: false, message: `Scan failed: ${e}` });
     } finally {
@@ -73,6 +77,7 @@ export default function ScanPage() {
     try {
       const res = await scanByUrl(trimmed, platform, type);
       setResult(res);
+      setRecentScans((prev) => [{ ...res, timestamp: Date.now(), type }, ...prev].slice(0, 5));
     } catch (e) {
       setResult({ matched: false, message: `Scan failed: ${e}` });
     } finally {
@@ -271,6 +276,38 @@ export default function ScanPage() {
                 </div>
               </div>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* Recent Scans */}
+      {recentScans.length > 0 && (
+        <div className="mt-8">
+          <h3 className="text-md font-semibold mb-3">Recent Scans (This Session)</h3>
+          <div className="space-y-3">
+            {recentScans.map((scan, idx) => (
+              <div key={idx} className="card p-3 flex flex-col md:flex-row md:items-center justify-between gap-3 animate-fade-in" style={{ animationDelay: `${idx * 0.05}s` }}>
+                <div className="flex items-center gap-3">
+                  <span className="text-xl">{scan.matched ? "🚨" : "✅"}</span>
+                  <div>
+                    <p className="text-sm font-semibold">
+                      {scan.matched ? "Matched" : "No Match"} · <span className="uppercase text-xs" style={{ color: "var(--text-muted)" }}>{scan.type}</span>
+                    </p>
+                    <p className="text-xs" style={{ color: "var(--text-secondary)" }}>
+                      {new Date(scan.timestamp).toLocaleTimeString()}
+                    </p>
+                  </div>
+                </div>
+                {scan.matched && scan.confidence !== undefined && (
+                  <div className="text-right">
+                    <p className="text-xs" style={{ color: "var(--text-muted)" }}>Confidence</p>
+                    <p className="text-sm font-semibold" style={{ color: "var(--danger)" }}>
+                      {(scan.confidence * 100).toFixed(1)}%
+                    </p>
+                  </div>
+                )}
+              </div>
+            ))}
           </div>
         </div>
       )}

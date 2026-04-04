@@ -12,8 +12,17 @@ export interface Asset {
   frame_count?: number;
   /** Gemini-generated discovery phrases stored on the asset */
   keywords?: string[];
-  /** User-provided text used to generate keywords (Twitter, Telegram, etc.) */
   description?: string | null;
+}
+
+export interface AssetDistribution {
+  recipient_id: string;
+  recipient_name: string;
+  recipient_identifier: string;
+  watermark_id: string;
+  generated: boolean;
+  distribution_url?: string;
+  created_at: string;
 }
 
 export interface Violation {
@@ -28,10 +37,13 @@ export interface Violation {
   match_type: string;
   image_path: string;
   created_at: string;
+  leaked_by?: string | null;
 }
 
 export interface ScanResult {
   matched: boolean;
+  status?: string;
+  job_id?: string;
   violation_id?: string;
   asset_id?: string;
   asset_name?: string;
@@ -40,6 +52,7 @@ export interface ScanResult {
   match_type?: string;
   details?: string;
   message?: string;
+  leaked_by?: string | null;
 }
 
 export interface GraphData {
@@ -57,6 +70,7 @@ export interface GraphNode {
   match_type?: string;
   source_url?: string;
   created_at?: string;
+  leaked_by?: string | null;
 }
 
 export interface GraphLink {
@@ -139,6 +153,36 @@ export async function registerAssetFromUrl(
     }),
   });
   if (!res.ok) throw new Error(await res.text());
+  return res.json();
+}
+
+export async function addAssetRecipients(assetId: string, recipients: { name: string; identifier: string }[]): Promise<{ message: string }> {
+  const res = await fetch(`${API_BASE}/assets/${assetId}/recipients`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ recipients }),
+  });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw new Error(data.detail || "Failed to add recipients");
+  }
+  return res.json();
+}
+
+export async function getAssetDistributions(assetId: string): Promise<AssetDistribution[]> {
+  const res = await fetch(`${API_BASE}/assets/${assetId}/distributions`);
+  if (!res.ok) throw new Error("Failed to load distributions");
+  return res.json();
+}
+
+export async function generateProtectedCopies(assetId: string): Promise<{ message: string }> {
+  const res = await fetch(`${API_BASE}/assets/${assetId}/generate-protected`, {
+    method: "POST",
+  });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw new Error(data.detail || "Failed to generate distributions");
+  }
   return res.json();
 }
 

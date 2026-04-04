@@ -6,10 +6,13 @@ import "./globals.css";
 
 const navItems = [
   { href: "/", label: "Dashboard", icon: "📊" },
-  { href: "/assets", label: "Assets", icon: "🖼️" },
   { href: "/scan", label: "Scan", icon: "🔍" },
+  { href: "/assets", label: "Assets", icon: "🖼️" },
+  { href: "/monitoring", label: "Monitoring", icon: "📡" },
   { href: "/violations", label: "Violations", icon: "⚠️" },
-  { href: "/graph", label: "Graph", icon: "🕸️" },
+  { href: "/graph", label: "Propagation", icon: "🕸️" },
+  { href: "/actions", label: "Actions", icon: "⚖️" },
+  { href: "/insights", label: "Insights", icon: "📈" },
 ];
 
 function Sidebar() {

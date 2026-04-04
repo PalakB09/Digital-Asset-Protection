@@ -20,10 +20,10 @@ from PIL import Image
 
 from app.database import get_db
 from app.config import UPLOAD_DIR, VIDEO_FRAMES, VIOLATION_DIR
-from app.models.asset import Asset
+from app.models.asset import Asset, AssetRecipient, AssetDistribution
 from app.models.violation import Violation, PropagationEdge
 from app.services.fingerprint import compute_phash, compute_embedding
-from app.services.watermark import embed_watermark
+from app.services.watermark import embed_watermark, embed_watermark_video
 from app.services import vector_store
 from app.services.video_fingerprint import compute_video_fingerprint
 from app.services.vector_store import add_video_frames
@@ -484,6 +484,7 @@ async def register_asset_from_url(body: RegisterFromUrlRequest, db: Session = De
         os.remove(filepath)
         raise HTTPException(status_code=400, detail=f"Invalid image from URL: {str(e)}")
 
+    # Watermark base injection logic remains unmodified
     watermarked = embed_watermark(image, payload=asset_id)
     watermarked.save(filepath)
 
@@ -526,3 +527,129 @@ async def register_asset_from_url(body: RegisterFromUrlRequest, db: Session = De
         "description": asset.description,
         "message": "Image registered from URL — fingerprints; discovery keywords from your description",
     }
+
+
+class RecipientListRequest(BaseModel):
+    recipients: list[dict] # expects dict with "name" and "identifier" mapping
+
+@router.post("/{asset_id}/recipients")
+async def add_recipients(asset_id: str, body: RecipientListRequest, db: Session = Depends(get_db)):
+    """Add distribution recipients for unique forensic watermarking."""
+    asset = db.query(Asset).filter(Asset.id == asset_id).first()
+    if not asset:
+        raise HTTPException(status_code=404, detail="Asset not found")
+
+    added = []
+    for r in body.recipients:
+        name = r.get("name", "").strip()
+        identifier = r.get("identifier", "").strip()
+        if not name or not identifier:
+            continue
+            
+        uuid_str = str(uuid4())
+        # To make watermark robust, uuid string fits nicely in 64 byte payload capability
+        recipient = AssetRecipient(
+            id=str(uuid4()),
+            asset_id=asset_id,
+            recipient_name=name,
+            recipient_identifier=identifier,
+            watermark_id=uuid_str
+        )
+        db.add(recipient)
+        added.append(recipient)
+    
+    if len(added) > 0:
+        db.commit()
+    
+    return {"message": f"Added {len(added)} recipients"}
+
+@router.get("/{asset_id}/distributions")
+async def list_distributions(asset_id: str, db: Session = Depends(get_db)):
+    """List all recipients and their active uniquely-watermarked distributions."""
+    recipients = db.query(AssetRecipient).filter(AssetRecipient.asset_id == asset_id).all()
+    distributions = db.query(AssetDistribution).filter(AssetDistribution.asset_id == asset_id).all()
+    
+    dist_map = {d.recipient_id: d for d in distributions}
+    
+    results = []
+    for r in recipients:
+        d = dist_map.get(r.id)
+        results.append({
+            "recipient_id": r.id,
+            "recipient_name": r.recipient_name,
+            "recipient_identifier": r.recipient_identifier,
+            "watermark_id": r.watermark_id,
+            "generated": d is not None,
+            "distribution_url": f"/api/assets/download/{d.id}" if d else None,
+            "created_at": r.created_at.isoformat() if r.created_at else None
+        })
+        
+    return results
+
+from app.config import DISTRIBUTIONS_DIR
+
+@router.post("/{asset_id}/generate-protected")
+async def generate_protected_copies(asset_id: str, db: Session = Depends(get_db)):
+    """Reads original asset and dynamically generates copies for any recipient missing a generated watermark."""
+    asset = db.query(Asset).filter(Asset.id == asset_id).first()
+    if not asset:
+        raise HTTPException(status_code=404, detail="Asset not found")
+        
+    filepath = str(UPLOAD_DIR / asset.original_path)
+    if not os.path.exists(filepath):
+        raise HTTPException(status_code=404, detail="Original asset file missing")
+        
+    recipients = db.query(AssetRecipient).filter(AssetRecipient.asset_id == asset_id).all()
+    distributions = db.query(AssetDistribution).filter(AssetDistribution.asset_id == asset_id).all()
+    
+    generated_recipient_ids = {d.recipient_id for d in distributions}
+    pending = [r for r in recipients if r.id not in generated_recipient_ids]
+    
+    if not pending:
+        return {"message": "All recipients already have generated distributions"}
+        
+    is_video = (asset.asset_type == "video")
+    
+    generated_count = 0
+    for recipient in pending:
+        ext = os.path.splitext(filepath)[1]
+        dist_filename = f"{recipient.watermark_id}{ext}"
+        dist_filepath = str(DISTRIBUTIONS_DIR / dist_filename)
+        
+        try:
+            if is_video:
+                success = embed_watermark_video(filepath, dist_filepath, payload=recipient.watermark_id)
+                if not success:
+                    raise Exception("Video watermarking failed")
+            else:
+                image = Image.open(filepath).convert("RGB")
+                watermarked = embed_watermark(image, payload=recipient.watermark_id)
+                watermarked.save(dist_filepath)
+                
+            dist = AssetDistribution(
+                asset_id=asset_id,
+                recipient_id=recipient.id,
+                watermarked_file_path=dist_filename,
+                watermark_id=recipient.watermark_id
+            )
+            db.add(dist)
+            generated_count += 1
+        except Exception as e:
+            log.error("Failed to generate protected copy for recipient %s: %s", recipient.id, str(e))
+            
+    db.commit()
+    return {"message": f"Generated {generated_count} new protected copies"}
+
+@router.get("/download/{distribution_id}")
+async def download_distribution(distribution_id: str, db: Session = Depends(get_db)):
+    dist = db.query(AssetDistribution).filter(AssetDistribution.id == distribution_id).first()
+    if not dist:
+        raise HTTPException(status_code=404, detail="Distribution not found")
+        
+    filepath = str(DISTRIBUTIONS_DIR / dist.watermarked_file_path)
+    if not os.path.exists(filepath):
+        raise HTTPException(status_code=404, detail="File missing")
+        
+    mime_type, _ = mimetypes.guess_type(filepath)
+    return FileResponse(filepath, media_type=mime_type or "application/octet-stream", filename=f"protected_{dist.watermarked_file_path}")
+

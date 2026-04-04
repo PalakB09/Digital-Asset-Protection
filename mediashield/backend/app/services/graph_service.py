@@ -63,6 +63,7 @@ def get_propagation_graph(asset_id: str, db: Session) -> dict:
                 "match_type": violation.match_type,
                 "source_url": violation.source_url,
                 "created_at": violation.created_at.isoformat() if violation.created_at else None,
+                "leaked_by": violation.leaked_by,
             })
 
             # Add edge (link)

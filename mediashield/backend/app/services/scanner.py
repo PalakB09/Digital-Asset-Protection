@@ -8,6 +8,7 @@ from PIL import Image
 from sqlalchemy.orm import Session
 
 from app.models.violation import Violation, PropagationEdge
+from app.models.asset import AssetRecipient
 from app.services.matcher import match_image, MatchResult
 from app.services.watermark import extract_watermark
 
@@ -38,8 +39,22 @@ def scan_image(
 
     # L3 watermark verification (highest-confidence attribution when present)
     extracted = extract_watermark(image)
-    watermark_verified = extracted == result.asset_id
-    attribution = extracted if watermark_verified else None
+    
+    watermark_verified = False
+    attribution = None
+    leaked_by = None
+
+    if extracted:
+        if extracted == result.asset_id:
+            watermark_verified = True
+            attribution = extracted
+        else:
+            recipient = db.query(AssetRecipient).filter(AssetRecipient.watermark_id == extracted).first()
+            if recipient:
+                watermark_verified = True
+                attribution = extracted
+                leaked_by = recipient.recipient_name # Using name for better display instead of just email
+
     match_tier = "VERIFIED" if watermark_verified else result.match_tier
     match_type = "watermark" if watermark_verified else result.match_type
 
@@ -56,6 +71,7 @@ def scan_image(
         image_path=image_path,
         watermark_verified=watermark_verified,
         attribution=attribution,
+        leaked_by=leaked_by,
     )
     db.add(violation)
 
@@ -65,6 +81,8 @@ def scan_image(
         source_asset_id=result.asset_id,
         violation_id=violation_id,
         platform=platform,
+        leaked_by=leaked_by,
+        watermark_id=attribution if watermark_verified else None,
     )
     db.add(edge)
 
@@ -81,5 +99,6 @@ def scan_image(
         "match_type": match_type,
         "watermark_verified": watermark_verified,
         "attribution": attribution,
+        "leaked_by": leaked_by,
         "details": result.details,
     }

@@ -137,13 +137,16 @@ export default function GraphDetailPage() {
       if (node.type === "original") {
         circle.setAttribute("fill", "#00d4aa");
         circle.setAttribute("filter", "url(#glow)");
+      } else if (node.leaked_by) {
+        circle.setAttribute("fill", "#f87171");
+        circle.setAttribute("filter", "url(#glow)");
       } else {
         circle.setAttribute("fill", "#ff6584");
       }
 
-      circle.setAttribute("stroke", node.type === "original" ? "#00d4aa" : "#ff6584");
-      circle.setAttribute("stroke-width", "2");
-      circle.setAttribute("stroke-opacity", "0.3");
+      circle.setAttribute("stroke", node.type === "original" ? "#00d4aa" : (node.leaked_by ? "#b91c1c" : "#ff6584"));
+      circle.setAttribute("stroke-width", node.leaked_by ? "4" : "2");
+      circle.setAttribute("stroke-opacity", "0.5");
       g.appendChild(circle);
 
       // Node icon
@@ -152,7 +155,7 @@ export default function GraphDetailPage() {
       icon.setAttribute("y", String(node.y + 5));
       icon.setAttribute("text-anchor", "middle");
       icon.setAttribute("font-size", node.type === "original" ? "16" : "12");
-      icon.textContent = node.type === "original" ? "🛡️" : "⚠️";
+      icon.textContent = node.type === "original" ? "🛡️" : (node.leaked_by ? "🕵️" : "⚠️");
       g.appendChild(icon);
 
       // Node label
@@ -160,10 +163,10 @@ export default function GraphDetailPage() {
       label.setAttribute("x", String(node.x));
       label.setAttribute("y", String(node.y + (node.type === "original" ? 36 : 30)));
       label.setAttribute("text-anchor", "middle");
-      label.setAttribute("fill", "#f0f0f5");
+      label.setAttribute("fill", node.leaked_by ? "#f87171" : "#f0f0f5");
       label.setAttribute("font-size", "11");
       label.setAttribute("font-weight", "600");
-      label.textContent = node.type === "original" ? node.label : node.platform;
+      label.textContent = node.type === "original" ? node.label : (node.leaked_by ? `Leak: ${node.leaked_by}` : node.platform);
       g.appendChild(label);
 
       // Tooltip on hover
@@ -257,6 +260,9 @@ export default function GraphDetailPage() {
             )}
             {tooltip.node.match_type && (
               <p>Match: <span className="font-medium">{tooltip.node.match_type}</span></p>
+            )}
+            {tooltip.node.leaked_by && (
+              <p className="text-red-400">Leaked By: <span className="font-bold">{tooltip.node.leaked_by}</span></p>
             )}
             {tooltip.node.created_at && (
               <p>Time: <span className="font-medium">{new Date(tooltip.node.created_at).toLocaleString()}</span></p>

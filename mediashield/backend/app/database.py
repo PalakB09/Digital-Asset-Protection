@@ -24,7 +24,7 @@ def get_db():
 
 def init_db():
     """Create all tables and run column migrations. Called at app startup."""
-    from app.models.asset import Asset  # noqa: F401
+    from app.models.asset import Asset, AssetRecipient, AssetDistribution  # noqa: F401
     from app.models.violation import Violation, PropagationEdge  # noqa: F401
     Base.metadata.create_all(bind=engine)
     _migrate()
@@ -71,6 +71,14 @@ def _run_sqlite_migrations():
             conn.exec_driver_sql("ALTER TABLE violations ADD COLUMN processing_status VARCHAR DEFAULT 'done'")
         if "detection_stage_results" not in violation_cols:
             conn.exec_driver_sql("ALTER TABLE violations ADD COLUMN detection_stage_results TEXT")
+        if "leaked_by" not in violation_cols:
+            conn.exec_driver_sql("ALTER TABLE violations ADD COLUMN leaked_by VARCHAR")
+
+        edge_cols = _table_columns(conn, "propagation_edges")
+        if "leaked_by" not in edge_cols:
+            conn.exec_driver_sql("ALTER TABLE propagation_edges ADD COLUMN leaked_by VARCHAR")
+        if "watermark_id" not in edge_cols:
+            conn.exec_driver_sql("ALTER TABLE propagation_edges ADD COLUMN watermark_id VARCHAR")
 
 
 def _table_columns(conn, table_name: str) -> set[str]:
