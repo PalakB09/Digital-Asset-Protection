@@ -317,3 +317,41 @@ export async function scanByUrlAsync(sourceUrl: string, platform?: string, media
   if (!res.ok) throw new Error(await res.text());
   return res.json();
 }
+
+// ─── Telegram Real-Time Monitoring ─────────────────────────────
+
+export interface MonitoredChannel {
+  id: string;
+  channel_username: string;
+  added_via_keyword: string | null;
+  is_active: boolean;
+  last_checked_at: string;
+  created_at: string;
+}
+
+export async function getMonitoredChannels(): Promise<MonitoredChannel[]> {
+  const res = await fetch(`${API_BASE}/telegram/channels`);
+  if (!res.ok) throw new Error("Failed to load monitored channels");
+  return res.json();
+}
+
+export async function addMonitoredChannel(channel_username: string): Promise<MonitoredChannel> {
+  const res = await fetch(`${API_BASE}/telegram/channels`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ channel_username }),
+  });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw new Error(data.detail || "Failed to add channel");
+  }
+  return res.json();
+}
+
+export async function toggleMonitoredChannel(id: string): Promise<MonitoredChannel> {
+  const res = await fetch(`${API_BASE}/telegram/channels/${id}/toggle`, {
+    method: "PUT",
+  });
+  if (!res.ok) throw new Error("Failed to toggle channel");
+  return res.json();
+}

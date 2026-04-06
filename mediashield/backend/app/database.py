@@ -26,6 +26,7 @@ def init_db():
     """Create all tables and run column migrations. Called at app startup."""
     from app.models.asset import Asset, AssetRecipient, AssetDistribution  # noqa: F401
     from app.models.violation import Violation, PropagationEdge  # noqa: F401
+    from app.models.telegram import MonitoredChannel  # noqa: F401
     Base.metadata.create_all(bind=engine)
     _migrate()
 

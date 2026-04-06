@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { getMonitoredChannels, toggleMonitoredChannel, addMonitoredChannel, type MonitoredChannel } from "@/lib/api";
 
 interface MonitoringEvent {
   id: string;
@@ -50,16 +51,53 @@ const mockEvents: MonitoringEvent[] = [
 
 export default function MonitoringPage() {
   const [events, setEvents] = useState<MonitoringEvent[]>([]);
+  const [channels, setChannels] = useState<MonitoredChannel[]>([]);
   const [loading, setLoading] = useState(true);
+  const [newChannel, setNewChannel] = useState("");
+  const [adding, setAdding] = useState(false);
 
   useEffect(() => {
-    // Simulate network request
-    const timer = setTimeout(() => {
-      setEvents(mockEvents);
-      setLoading(false);
-    }, 500);
-    return () => clearTimeout(timer);
+    loadData();
   }, []);
+
+  async function loadData() {
+    setLoading(true);
+    try {
+      setEvents(mockEvents); // keep mock events for generic feed
+      const chans = await getMonitoredChannels();
+      setChannels(chans);
+    } catch(e) {
+      console.error(e);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleAddChannel(e: React.FormEvent) {
+    e.preventDefault();
+    if (!newChannel.trim()) return;
+    setAdding(true);
+    try {
+      await addMonitoredChannel(newChannel);
+      setNewChannel("");
+      const chans = await getMonitoredChannels();
+      setChannels(chans);
+    } catch(e) {
+      alert("Failed to add channel");
+    } finally {
+      setAdding(false);
+    }
+  }
+
+  async function handleToggle(id: string) {
+    try {
+      await toggleMonitoredChannel(id);
+      const chans = await getMonitoredChannels();
+      setChannels(chans);
+    } catch(e) {
+      console.error(e);
+    }
+  }
 
   return (
     <div>
@@ -75,7 +113,93 @@ export default function MonitoringPage() {
           <div className="spinner" style={{ width: 40, height: 40 }}></div>
         </div>
       ) : (
-        <div className="card p-0 overflow-hidden animate-fade-in">
+        <div className="flex flex-col gap-8">
+          
+          {/* Telegram Real-Time Targets */}
+          <div className="card p-0 overflow-hidden animate-fade-in shadow-lg" style={{ border: "1px solid rgba(108, 99, 255, 0.3)" }}>
+            <div className="p-5 flex justify-between items-center" style={{ background: "rgba(108, 99, 255, 0.05)", borderBottom: "1px solid var(--border-color)" }}>
+              <div>
+                <h2 className="text-lg font-semibold flex items-center gap-2">
+                  <span className="text-xl">✈️</span> Telegram Real-Time Targets
+                </h2>
+                <p className="text-sm mt-1" style={{ color: "var(--text-secondary)" }}>
+                  Channels actively piped into background workers for real-time memory scanning.
+                </p>
+              </div>
+              <form onSubmit={handleAddChannel} className="flex gap-2">
+                <input
+                  type="text"
+                  placeholder="@channel_username"
+                  value={newChannel}
+                  onChange={(e) => setNewChannel(e.target.value)}
+                  disabled={adding}
+                  className="px-3 py-1.5 rounded border border-transparent bg-black/20 text-sm focus:outline-none focus:border-indigo-500 min-w-[200px]"
+                />
+                <button type="submit" disabled={adding || !newChannel} className="btn py-1.5 px-4 text-xs font-semibold" style={{ background: "rgba(108, 99, 255, 0.2)", color: "var(--accent-primary)"}}>
+                  {adding ? "Adding..." : "+ Monitor"}
+                </button>
+              </form>
+            </div>
+            
+            <div className="overflow-x-auto">
+              <table className="w-full text-left border-collapse">
+                <thead>
+                  <tr style={{ background: "var(--bg-secondary)", borderBottom: "1px solid var(--border-color)" }}>
+                    <th className="p-4 text-xs font-semibold" style={{ color: "var(--text-muted)" }}>USERNAME</th>
+                    <th className="p-4 text-xs font-semibold" style={{ color: "var(--text-muted)" }}>DISCOVERY SOURCE</th>
+                    <th className="p-4 text-xs font-semibold" style={{ color: "var(--text-muted)" }}>STATUS</th>
+                    <th className="p-4 text-xs font-semibold text-right" style={{ color: "var(--text-muted)" }}>ACTION</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {channels.length === 0 && (
+                    <tr>
+                      <td colSpan={4} className="p-6 text-center text-sm" style={{ color: "var(--text-muted)" }}>
+                        No channels are actively monitored in real time. Add one or wait for discovery workers.
+                      </td>
+                    </tr>
+                  )}
+                  {channels.map((chan) => (
+                    <tr key={chan.id} style={{ borderBottom: "1px solid var(--border-color)" }}>
+                      <td className="p-4 font-semibold text-sm">
+                        <a href={`https://t.me/${chan.channel_username}`} target="_blank" rel="noopener noreferrer" className="hover:underline flex items-center gap-1" style={{ color: "var(--text-primary)" }}>
+                          @{chan.channel_username} ↗
+                        </a>
+                      </td>
+                      <td className="p-4 text-sm font-mono" style={{ color: "var(--text-secondary)" }}>
+                        {chan.added_via_keyword === "manual_ui" ? (
+                          <span style={{ color: "var(--accent-secondary)" }}>Manual Entry</span>
+                        ) : (
+                          `Keyword: "${chan.added_via_keyword}"`
+                        )}
+                      </td>
+                      <td className="p-4">
+                        {chan.is_active ? (
+                          <span className="badge badge-success text-[10px] animate-pulse">● LISTENING</span>
+                        ) : (
+                          <span className="badge text-[10px]" style={{ background: "transparent", color: "var(--text-muted)", border: "1px solid var(--border-color)" }}>
+                            PAUSED
+                          </span>
+                        )}
+                      </td>
+                      <td className="p-4 text-right">
+                        <button 
+                          onClick={() => handleToggle(chan.id)}
+                          className="text-xs hover:underline"
+                          style={{ color: chan.is_active ? "#f87171" : "var(--success)" }}
+                        >
+                          {chan.is_active ? "Pause" : "Resume"}
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          {/* Event Stream */}
+          <div className="card p-0 overflow-hidden animate-fade-in">
           <div className="p-5" style={{ borderBottom: "1px solid var(--border-color)" }}>
             <h2 className="text-lg font-semibold flex items-center gap-2">
               <span className="text-xl">📡</span> Event Stream
@@ -131,6 +255,7 @@ export default function MonitoringPage() {
             <button className="btn btn-outline text-xs" disabled>
               Load More Events
             </button>
+          </div>
           </div>
         </div>
       )}

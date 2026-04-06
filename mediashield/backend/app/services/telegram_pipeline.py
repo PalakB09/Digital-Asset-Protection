@@ -16,10 +16,12 @@ from PIL import Image
 
 from app.config import TELEGRAM_MAX_DOWNLOAD_MB, VIOLATION_DIR
 from app.database import SessionLocal
-from app.models.asset import Asset
+from app.models.asset import Asset, AssetRecipient
 from app.models.violation import PropagationEdge, Violation
+from app.models.telegram import MonitoredChannel
 from app.services.alerts import fire_and_forget_broadcast
 from app.services.scanner import scan_image
+from app.services.watermark import extract_watermark_video
 from app.services.telegram_scraper import (
     build_client,
     find_public_channels_by_keyword,
@@ -60,6 +62,25 @@ def _create_video_violation(filepath: str, filename: str, source_url: str, db) -
     if not result.matched:
         return None
 
+    extracted = extract_watermark_video(filepath)
+    watermark_verified = False
+    attribution = None
+    leaked_by = None
+
+    if extracted:
+        if extracted == result.asset_id:
+            watermark_verified = True
+            attribution = extracted
+        else:
+            recipient = db.query(AssetRecipient).filter(AssetRecipient.watermark_id == extracted).first()
+            if recipient:
+                watermark_verified = True
+                attribution = extracted
+                leaked_by = recipient.recipient_name
+
+    match_tier = "VERIFIED" if watermark_verified else result.match_tier
+    match_type = "watermark" if watermark_verified else result.match_type
+
     violation_id = str(uuid4())
     violation = Violation(
         id=violation_id,
@@ -67,9 +88,12 @@ def _create_video_violation(filepath: str, filename: str, source_url: str, db) -
         source_url=source_url,
         platform="telegram",
         confidence=result.confidence,
-        match_tier=result.match_tier,
-        match_type=result.match_type,
+        match_tier=match_tier,
+        match_type=match_type,
         image_path=filename,
+        watermark_verified=watermark_verified,
+        attribution=attribution,
+        leaked_by=leaked_by,
     )
     db.add(violation)
     edge = PropagationEdge(
@@ -77,6 +101,8 @@ def _create_video_violation(filepath: str, filename: str, source_url: str, db) -
         source_asset_id=result.asset_id,
         violation_id=violation_id,
         platform="telegram",
+        watermark_id=attribution if watermark_verified else None,
+        leaked_by=leaked_by,
     )
     db.add(edge)
     db.commit()
@@ -86,8 +112,11 @@ def _create_video_violation(filepath: str, filename: str, source_url: str, db) -
         "violation_id": violation.id,
         "asset_id": result.asset_id,
         "confidence": result.confidence,
-        "match_tier": result.match_tier,
-        "match_type": result.match_type,
+        "match_tier": match_tier,
+        "match_type": match_type,
+        "watermark_verified": watermark_verified,
+        "attribution": attribution,
+        "leaked_by": leaked_by,
     }
 
 
@@ -274,6 +303,18 @@ async def run_telegram_scrape_for_asset(
                                     os.remove(final_path)
                                 except OSError:
                                     pass
+                            # Wait, auto-inject this channel into MonitoredChannel since we confirmed a leak!
+                            if out.get("matched") or (suffix in _VIDEO_SUFFIX and out):
+                                existing = db.query(MonitoredChannel).filter(MonitoredChannel.channel_username == uname).first()
+                                if not existing:
+                                    mc = MonitoredChannel(
+                                        id=str(uuid4()),
+                                        channel_username=uname,
+                                        added_via_keyword=kw,
+                                        is_active=True
+                                    )
+                                    db.add(mc)
+                                    db.commit()
                     finally:
                         db.close()
 
