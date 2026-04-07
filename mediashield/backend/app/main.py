@@ -8,7 +8,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.database import init_db
-from app.routers import assets, scan, violations, graph, monitoring, webhooks, telegram
+from app.routers import assets, scan, violations, graph, monitoring, webhooks, telegram, twitter
 from app.routers import jobs as jobs_router
 from app.services.monitoring import monitoring_worker
 from app.services.job_worker import job_worker
@@ -37,7 +37,7 @@ app = FastAPI(
 # CORS — allow frontend dev server
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000"],
+    allow_origins=["http://localhost:3000", "http://127.0.0.1:3000"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -52,6 +52,7 @@ app.include_router(monitoring.router, prefix="/api")
 app.include_router(webhooks.router, prefix="/api")
 app.include_router(jobs_router.router, prefix="/api")
 app.include_router(telegram.router, prefix="/api")
+app.include_router(twitter.router, prefix="/api")
 
 
 @app.get("/api/health")

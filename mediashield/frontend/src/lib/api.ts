@@ -15,6 +15,11 @@ export interface Asset {
   description?: string | null;
 }
 
+export interface AssetRegistrationResponse extends Asset {
+  message?: string;
+  twitter_scan_job_id?: string;
+}
+
 export interface AssetDistribution {
   recipient_id: string;
   recipient_name: string;
@@ -88,9 +93,16 @@ export interface Stats {
   platforms_monitored: number;
 }
 
+export interface TwitterScrapeJobResponse {
+  status: string;
+  job_id: string;
+  asset_id: string;
+  asset_name: string;
+}
+
 // ─── Assets ────────────────────────────────────────────────────
 
-export async function registerAsset(file: File, description?: string): Promise<Asset> {
+export async function registerAsset(file: File, description?: string): Promise<AssetRegistrationResponse> {
   const formData = new FormData();
   formData.append("file", file);
   formData.append("description", (description ?? "").trim());
@@ -125,7 +137,7 @@ export function getAssetImageUrl(id: string): string {
   return `${API_BASE}/assets/${id}/image`;
 }
 
-export async function registerVideoAsset(file: File, description?: string): Promise<Asset> {
+export async function registerVideoAsset(file: File, description?: string): Promise<AssetRegistrationResponse> {
   const formData = new FormData();
   formData.append("file", file);
   formData.append("description", (description ?? "").trim());
@@ -183,6 +195,23 @@ export async function generateProtectedCopies(assetId: string): Promise<{ messag
     const data = await res.json().catch(() => ({}));
     throw new Error(data.detail || "Failed to generate distributions");
   }
+  return res.json();
+}
+
+export async function queueTwitterScrape(
+  assetId: string,
+  options?: { max_keywords?: number; posts_per_keyword?: number; media_per_post?: number }
+): Promise<TwitterScrapeJobResponse> {
+  const res = await fetch(`${API_BASE}/twitter/scrape/${assetId}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      max_keywords: options?.max_keywords ?? 5,
+      posts_per_keyword: options?.posts_per_keyword ?? 8,
+      media_per_post: options?.media_per_post ?? 3,
+    }),
+  });
+  if (!res.ok) throw new Error(await res.text());
   return res.json();
 }
 

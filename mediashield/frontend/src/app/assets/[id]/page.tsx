@@ -7,10 +7,17 @@ import {
   getAssetImageUrl, 
   getAssetDistributions, 
   addAssetRecipients, 
+  getJobStatus,
   generateProtectedCopies,
+  queueTwitterScrape,
   type Asset, 
   type AssetDistribution 
 } from "@/lib/api";
+
+type TwitterScrapeResult = {
+  ok?: boolean;
+  error?: string;
+};
 
 const API_BASE = "http://localhost:8000/api";
 
@@ -23,6 +30,7 @@ export default function AssetDetailsPage() {
   const [distributions, setDistributions] = useState<AssetDistribution[]>([]);
   const [loading, setLoading] = useState(true);
   const [generating, setGenerating] = useState(false);
+  const [twitterScraping, setTwitterScraping] = useState(false);
   
   // Recipient form
   const [newName, setNewName] = useState("");
@@ -31,26 +39,36 @@ export default function AssetDetailsPage() {
   const [message, setMessage] = useState<{type: "error"|"success", text: string} | null>(null);
 
   useEffect(() => {
-    if (assetId) {
-      loadData();
-    }
-  }, [assetId]);
+    if (!assetId) return;
 
-  async function loadData() {
-    setLoading(true);
-    setMessage(null);
-    try {
-      const ast = await getAsset(assetId);
-      setAsset(ast);
-      
-      const dists = await getAssetDistributions(assetId);
-      setDistributions(dists);
-    } catch (e: any) {
-      setMessage({ type: "error", text: `Failed to load asset: ${e.message}` });
-    } finally {
-      setLoading(false);
-    }
-  }
+    let cancelled = false;
+    (async () => {
+      setLoading(true);
+      setMessage(null);
+      try {
+        const ast = await getAsset(assetId);
+        if (cancelled) return;
+        setAsset(ast);
+
+        const dists = await getAssetDistributions(assetId);
+        if (cancelled) return;
+        setDistributions(dists);
+      } catch (error: unknown) {
+        if (!cancelled) {
+          const errorMessage = error instanceof Error ? error.message : String(error);
+          setMessage({ type: "error", text: `Failed to load asset: ${errorMessage}` });
+        }
+      } finally {
+        if (!cancelled) {
+          setLoading(false);
+        }
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [assetId]);
 
   async function handleAddRecipient(e: React.FormEvent) {
     e.preventDefault();
@@ -66,8 +84,9 @@ export default function AssetDetailsPage() {
       const dists = await getAssetDistributions(assetId);
       setDistributions(dists);
       setMessage({ type: "success", text: "Recipient added successfully." });
-    } catch (e: any) {
-      setMessage({ type: "error", text: `Failed to add recipient: ${e.message}` });
+    } catch (error: unknown) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      setMessage({ type: "error", text: `Failed to add recipient: ${errorMessage}` });
     } finally {
       setAddLoading(false);
     }
@@ -83,10 +102,63 @@ export default function AssetDetailsPage() {
       // refresh distributions
       const dists = await getAssetDistributions(assetId);
       setDistributions(dists);
-    } catch (e: any) {
-      setMessage({ type: "error", text: `Generation failed: ${e.message}` });
+    } catch (error: unknown) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      setMessage({ type: "error", text: `Generation failed: ${errorMessage}` });
     } finally {
       setGenerating(false);
+    }
+  }
+
+  async function handleTwitterScrape() {
+    setTwitterScraping(true);
+    setMessage(null);
+    try {
+      const res = await queueTwitterScrape(assetId);
+      setMessage({
+        type: "success",
+        text: `Twitter scrape started for ${res.asset_name}. Waiting for job ${res.job_id}...`,
+      });
+
+      let finalStatus = null as Awaited<ReturnType<typeof getJobStatus>> | null;
+      for (let attempt = 0; attempt < 15; attempt += 1) {
+        const job = await getJobStatus(res.job_id);
+        if (job.status === "done" || job.status === "failed") {
+          finalStatus = job;
+          break;
+        }
+        await new Promise((resolve) => setTimeout(resolve, 2000));
+      }
+
+      if (finalStatus?.status === "done") {
+        const result = finalStatus.result as TwitterScrapeResult | undefined;
+        if (result?.ok === false) {
+          setMessage({
+            type: "error",
+            text: `Twitter scrape finished with no scan: ${result.error || "no details returned"}`,
+          });
+        } else {
+          setMessage({
+            type: "success",
+            text: `Twitter scrape finished for ${res.asset_name}.`,
+          });
+        }
+      } else if (finalStatus?.status === "failed") {
+        setMessage({
+          type: "error",
+          text: `Twitter scrape failed: ${finalStatus.error || "unknown error"}`,
+        });
+      } else {
+        setMessage({
+          type: "success",
+          text: `Twitter scrape is still running for ${res.asset_name}. Refresh the page to check job history if needed.`,
+        });
+      }
+    } catch (error: unknown) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      setMessage({ type: "error", text: `Twitter scrape failed: ${errorMessage}` });
+    } finally {
+      setTwitterScraping(false);
     }
   }
 
@@ -189,18 +261,32 @@ export default function AssetDetailsPage() {
 
             <div className="flex justify-between items-center mb-4">
               <h3 className="font-semibold">Distribution Log</h3>
-              <button 
-                onClick={handleGenerateCopies} 
-                disabled={generating || distributions.length === 0 || distributions.every(d => d.generated)}
-                className="btn text-sm px-4"
-                style={{
-                  background: generating ? "var(--bg-secondary)" : "rgba(108, 99, 255, 0.15)",
-                  color: generating ? "var(--text-muted)" : "var(--accent-primary)",
-                  border: generating ? "1px solid var(--border-color)" : "1px solid rgba(108, 99, 255, 0.35)",
-                }}
-              >
-                {generating ? "Generating Copies..." : "Generate Pending Copies"}
-              </button>
+              <div className="flex gap-2">
+                <button 
+                  onClick={handleTwitterScrape} 
+                  disabled={twitterScraping}
+                  className="btn text-sm px-4"
+                  style={{
+                    background: twitterScraping ? "var(--bg-secondary)" : "rgba(29, 161, 242, 0.15)",
+                    color: twitterScraping ? "var(--text-muted)" : "rgb(29, 161, 242)",
+                    border: twitterScraping ? "1px solid var(--border-color)" : "1px solid rgba(29, 161, 242, 0.35)",
+                  }}
+                >
+                  {twitterScraping ? "Queueing X Scrape..." : "Scan X / Twitter"}
+                </button>
+                <button 
+                  onClick={handleGenerateCopies} 
+                  disabled={generating || distributions.length === 0 || distributions.every(d => d.generated)}
+                  className="btn text-sm px-4"
+                  style={{
+                    background: generating ? "var(--bg-secondary)" : "rgba(108, 99, 255, 0.15)",
+                    color: generating ? "var(--text-muted)" : "var(--accent-primary)",
+                    border: generating ? "1px solid var(--border-color)" : "1px solid rgba(108, 99, 255, 0.35)",
+                  }}
+                >
+                  {generating ? "Generating Copies..." : "Generate Pending Copies"}
+                </button>
+              </div>
             </div>
 
             {distributions.length === 0 ? (

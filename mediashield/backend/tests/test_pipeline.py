@@ -23,6 +23,7 @@ import json
 import os
 import sys
 import time
+from uuid import uuid4
 
 import pytest
 from PIL import Image
@@ -43,7 +44,11 @@ def _bootstrap():
     """One-time init: logging + database."""
     from app.services.log_config import setup_logging
     setup_logging()
-    from app.database import init_db
+    from app.database import Base, engine, init_db
+    from app.models import asset as _asset_models  # noqa: F401
+    from app.models import telegram as _telegram_models  # noqa: F401
+    from app.models import violation as _violation_models  # noqa: F401
+    Base.metadata.drop_all(bind=engine)
     init_db()
 
 
@@ -122,6 +127,65 @@ async def test_1_job_creation(client):
     assert len(queue.list_jobs()) > initial_count
 
     print(f"  TEST 1 PASSED - Job {data['job_id']} created, status=pending")
+
+
+@pytest.mark.asyncio
+async def test_1b_twitter_scrape_job_queue(client, db):
+    """Twitter scrape requests should queue a background job for an existing asset."""
+    from app.models.asset import Asset
+    from app.services.job_queue import get_queue
+
+    asset_id = str(uuid4())
+    asset = Asset(
+        id=asset_id,
+        name="twitter-test-asset.jpg",
+        original_path="twitter-test-asset.jpg",
+        phash="0" * 16,
+        embedding_id=asset_id,
+        watermark_key="watermark-key",
+        keywords=json.dumps(["sports highlights", "match clip"]),
+        description="test asset",
+    )
+    db.add(asset)
+    db.commit()
+
+    try:
+        queue = get_queue()
+        initial_count = len(queue.list_jobs())
+
+        resp = await client.post(
+            f"/api/twitter/scrape/{asset_id}",
+            json={"max_keywords": 2, "posts_per_keyword": 3, "media_per_post": 1},
+        )
+        data = resp.json()
+        assert resp.status_code == 200, f"Expected 200 but got {resp.status_code}: {data}"
+        assert data["status"] == "queued"
+        assert data["asset_id"] == asset_id
+        assert "job_id" in data
+
+        job = queue.get_job(data["job_id"])
+        assert job is not None
+        assert job.job_type == "twitter_scrape_asset"
+        assert len(queue.list_jobs()) > initial_count
+
+        print(f"  TEST 1B PASSED - Twitter scrape job {data['job_id']} created")
+    finally:
+        db.delete(asset)
+        db.commit()
+
+
+def test_1c_twitter_query_is_narrowed():
+    from app.services.twitter_pipeline import _build_search_query
+
+    assert _build_search_query("sports highlights") == '"sports highlights" filter:media -is:retweet -is:reply'
+    assert _build_search_query(" highlight ") == 'highlight filter:media -is:retweet -is:reply'
+
+
+def test_1d_twitter_relevance_requires_strong_overlap():
+    from app.services.twitter_pipeline import _is_relevant_post
+
+    assert _is_relevant_post("sports highlights", "sports highlights reel now") is True
+    assert _is_relevant_post("sports highlights", "breaking sports update") is False
 
 
 # ---------------------------------------------------------------------------

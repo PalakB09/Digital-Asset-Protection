@@ -60,6 +60,16 @@ async def _process_job(job: Job, attempt: int):
             result = await _process_image_url_job(job, stage_results)
         elif job.job_type == "scan_url_video":
             result = await _process_video_url_job(job, stage_results)
+        elif job.job_type == "twitter_scrape_asset":
+            from app.services.twitter_pipeline import run_twitter_scrape_for_asset
+
+            result = await run_twitter_scrape_for_asset(
+                job.payload.get("asset_id", ""),
+                max_keywords=int(job.payload.get("max_keywords", 5)),
+                posts_per_keyword=int(job.payload.get("posts_per_keyword", 20)),
+                media_per_post=int(job.payload.get("media_per_post", 3)),
+                force_post_urls=[str(u).strip() for u in (job.payload.get("force_post_urls") or []) if str(u).strip()],
+            )
         else:
             raise ValueError(f"Unknown job type: {job.job_type}")
 

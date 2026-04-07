@@ -69,6 +69,9 @@ TELEGRAM_SESSION_NAME = (os.environ.get("TELEGRAM_SESSION_NAME", "mediashield") 
 TELEGRAM_SESSION_PATH = TELEGRAM_DIR / TELEGRAM_SESSION_NAME
 TELEGRAM_MAX_DOWNLOAD_MB = _int_env("TELEGRAM_MAX_DOWNLOAD_MB", 50) or 50
 
+# X / Twitter scraping (Playwright + public web pages)
+X_MAX_DOWNLOAD_MB = _int_env("X_MAX_DOWNLOAD_MB", 50) or 50
+
 
 def telegram_configured() -> bool:
     return TELEGRAM_API_ID > 0 and bool(TELEGRAM_API_HASH)

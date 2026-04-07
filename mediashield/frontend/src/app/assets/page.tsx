@@ -22,6 +22,7 @@ export default function AssetsPage() {
     keywords?: string[];
   } | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+  const messageRef = useRef<HTMLDivElement>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [assetUrl, setAssetUrl] = useState("");
   const [urlMediaType, setUrlMediaType] = useState<"auto" | "image" | "video">("auto");
@@ -31,6 +32,12 @@ export default function AssetsPage() {
   useEffect(() => {
     loadAssets();
   }, []);
+
+  useEffect(() => {
+    if (message) {
+      messageRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+    }
+  }, [message]);
 
   async function loadAssets() {
     try {
@@ -67,14 +74,14 @@ export default function AssetsPage() {
         const res = await registerVideoAsset(file, desc);
         setMessage({
           type: "success",
-          text: `"${file.name}" registered — ${res.frame_count} frames extracted and embedded. Asset is trackable.`,
+          text: res.message ?? `"${file.name}" registered — ${res.frame_count} frames extracted and embedded. Asset is trackable.`,
           keywords: res.keywords,
         });
       } else {
         const res = await registerAsset(file, desc);
         setMessage({
           type: "success",
-          text: `"${file.name}" registered successfully! Fingerprints generated. Asset is trackable.`,
+          text: res.message ?? `"${file.name}" registered successfully! Fingerprints generated. Asset is trackable.`,
           keywords: res.keywords,
         });
       }
@@ -262,8 +269,11 @@ export default function AssetsPage() {
 
       {/* Message */}
       {message && (
-        <div className={`mb-6 p-4 rounded-lg animate-fade-in ${message.type === "success" ? "badge-success" : "badge-high"}`}
-             style={{ fontSize: 14 }}>
+        <div
+          ref={messageRef}
+          className={`mb-6 p-4 rounded-lg animate-fade-in ${message.type === "success" ? "badge-success" : "badge-high"}`}
+          style={{ fontSize: 14 }}
+        >
           <p className="mb-0">{message.text}</p>
           {message.type === "success" && message.keywords && message.keywords.length > 0 ? (
             <div className="mt-3">
