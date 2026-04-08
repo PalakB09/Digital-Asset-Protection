@@ -10,14 +10,13 @@ export interface Asset {
   violation_count: number;
   asset_type?: string;
   frame_count?: number;
-  /** Gemini-generated discovery phrases stored on the asset */
   keywords?: string[];
   description?: string | null;
 }
 
 export interface AssetRegistrationResponse extends Asset {
   message?: string;
-  twitter_scan_job_id?: string;
+  scan_jobs?: Record<string, string>;
 }
 
 export interface AssetDistribution {
@@ -58,6 +57,30 @@ export interface ScanResult {
   details?: string;
   message?: string;
   leaked_by?: string | null;
+}
+
+export interface MonitoringEvent {
+  id: string;
+  platform: string;
+  url: string;
+  timestamp: string;
+  status: "processed" | "pending";
+  image_url?: string;
+}
+
+export interface PipelineStatus {
+  twitter: { running: number; completed: number; failed: number; total_violations: number };
+  youtube: { running: number; completed: number; failed: number; total_violations: number };
+  google: { running: number; completed: number; failed: number; total_violations: number };
+  telegram: { running: number; completed: number; failed: number; total_violations: number; channels: number };
+}
+
+export interface TriggerScanResponse {
+  status: string;
+  asset_id: string;
+  asset_name: string;
+  platforms_queued: string[];
+  job_ids: Record<string, string>;
 }
 
 export interface GraphData {
@@ -126,7 +149,6 @@ export async function getAsset(id: string): Promise<Asset> {
   return res.json();
 }
 
-/** Permanently delete an asset (file, embeddings, violations). */
 export async function deleteAsset(id: string): Promise<{ deleted: boolean; id: string }> {
   const res = await fetch(`${API_BASE}/assets/${id}`, { method: "DELETE" });
   if (!res.ok) throw new Error(await res.text());
@@ -149,7 +171,6 @@ export async function registerVideoAsset(file: File, description?: string): Prom
   return res.json();
 }
 
-/** Register original asset from URL (image or video page / direct file). */
 export async function registerAssetFromUrl(
   sourceUrl: string,
   mediaType: "auto" | "image" | "video" = "auto",
@@ -191,38 +212,19 @@ export async function generateProtectedCopies(assetId: string): Promise<{ messag
   const res = await fetch(`${API_BASE}/assets/${assetId}/generate-protected`, {
     method: "POST",
   });
-  if (!res.ok) {
-    const data = await res.json().catch(() => ({}));
-    throw new Error(data.detail || "Failed to generate distributions");
-  }
-  return res.json();
-}
-
-export async function queueTwitterScrape(
-  assetId: string,
-  options?: { max_keywords?: number; posts_per_keyword?: number; media_per_post?: number }
-): Promise<TwitterScrapeJobResponse> {
-  const res = await fetch(`${API_BASE}/twitter/scrape/${assetId}`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      max_keywords: options?.max_keywords ?? 5,
-      posts_per_keyword: options?.posts_per_keyword ?? 8,
-      media_per_post: options?.media_per_post ?? 3,
-    }),
-  });
   if (!res.ok) throw new Error(await res.text());
   return res.json();
 }
 
-// ─── Scan ──────────────────────────────────────────────────────
+// ─── Scanning ──────────────────────────────────────────────────
 
-export async function scanImage(file: File, platform?: string): Promise<ScanResult> {
+export async function scanImage(file: File, source?: string, platform?: string): Promise<ScanResult> {
   const formData = new FormData();
   formData.append("file", file);
   const params = new URLSearchParams();
+  if (source) params.append("source_url", source);
   if (platform) params.append("platform", platform);
-  const url = `${API_BASE}/scan${params.toString() ? "?" + params.toString() : ""}`;
+  const url = `${API_BASE}/scan?${params.toString()}`;
   const res = await fetch(url, {
     method: "POST",
     body: formData,
@@ -231,12 +233,13 @@ export async function scanImage(file: File, platform?: string): Promise<ScanResu
   return res.json();
 }
 
-export async function scanVideo(file: File, platform?: string): Promise<ScanResult> {
+export async function scanVideoFile(file: File, source?: string, platform?: string): Promise<ScanResult> {
   const formData = new FormData();
   formData.append("file", file);
   const params = new URLSearchParams();
+  if (source) params.append("source_url", source);
   if (platform) params.append("platform", platform);
-  const url = `${API_BASE}/scan/video${params.toString() ? "?" + params.toString() : ""}`;
+  const url = `${API_BASE}/scan/video?${params.toString()}`;
   const res = await fetch(url, {
     method: "POST",
     body: formData,
@@ -245,14 +248,33 @@ export async function scanVideo(file: File, platform?: string): Promise<ScanResu
   return res.json();
 }
 
-export async function scanByUrl(sourceUrl: string, platform?: string, mediaType?: string): Promise<ScanResult> {
+export async function scanFromUrl(sourceUrl: string, platform?: string, mediaType?: string): Promise<ScanResult> {
   const params = new URLSearchParams();
-  params.append("source_url", sourceUrl);
+  params.append("source_url", sourceUrl.trim());
   if (platform) params.append("platform", platform);
   if (mediaType) params.append("media_type", mediaType);
   const url = `${API_BASE}/scan/url?${params.toString()}`;
-  const res = await fetch(url, {
+  const res = await fetch(url, { method: "POST" });
+  if (!res.ok) throw new Error(await res.text());
+  return res.json();
+}
+
+// ─── Per-Asset Trigger ─────────────────────────────────────────
+
+export async function triggerAssetScan(
+  assetId: string,
+  platform: string,
+  maxKeywords: number = 10,
+  resultsPerKeyword: number = 20,
+): Promise<TriggerScanResponse> {
+  const res = await fetch(`${API_BASE}/scan/trigger/${assetId}`, {
     method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      platform,
+      max_keywords: maxKeywords,
+      results_per_keyword: resultsPerKeyword,
+    }),
   });
   if (!res.ok) throw new Error(await res.text());
   return res.json();
@@ -260,45 +282,27 @@ export async function scanByUrl(sourceUrl: string, platform?: string, mediaType?
 
 // ─── Violations ────────────────────────────────────────────────
 
-export async function listViolations(): Promise<Violation[]> {
+export async function getViolations(): Promise<Violation[]> {
   const res = await fetch(`${API_BASE}/violations`);
   if (!res.ok) throw new Error("Failed to fetch violations");
   return res.json();
 }
 
-export async function getViolation(id: string): Promise<Violation> {
-  const res = await fetch(`${API_BASE}/violations/${id}`);
-  if (!res.ok) throw new Error("Violation not found");
-  return res.json();
+export async function getDmca(violationId: string): Promise<string> {
+  const res = await fetch(`${API_BASE}/violations/${violationId}/dmca`);
+  if (!res.ok) throw new Error("Failed to generate DMCA notice");
+  return res.text();
 }
 
 export function getViolationImageUrl(id: string): string {
   return `${API_BASE}/violations/${id}/image`;
 }
 
-export async function generateDMCA(violationId: string): Promise<{ message: string; pdf_filename: string }> {
-  const res = await fetch(`${API_BASE}/violations/${violationId}/dmca`, {
-    method: "POST",
-  });
-  if (!res.ok) throw new Error("Failed to generate DMCA");
-  return res.json();
-}
-
-export function getDMCADownloadUrl(violationId: string): string {
-  return `${API_BASE}/violations/${violationId}/dmca`;
-}
-
 // ─── Graph ─────────────────────────────────────────────────────
 
-export async function getGraphData(assetId: string): Promise<GraphData> {
-  const res = await fetch(`${API_BASE}/graph/${assetId}`);
-  if (!res.ok) throw new Error("Graph data not found");
-  return res.json();
-}
-
-export async function listGraphAssets(): Promise<Asset[]> {
+export async function getGraphData(): Promise<GraphData> {
   const res = await fetch(`${API_BASE}/graph`);
-  if (!res.ok) throw new Error("Failed to fetch graph assets");
+  if (!res.ok) throw new Error("Failed to fetch graph data");
   return res.json();
 }
 
@@ -310,39 +314,37 @@ export async function getStats(): Promise<Stats> {
   return res.json();
 }
 
-// ─── Jobs (Background Processing) ──────────────────────────────
+// ─── Jobs ──────────────────────────────────────────────────────
 
-export interface JobStatus {
+export async function getJobStatus(jobId: string): Promise<{
   job_id: string;
-  status: "pending" | "processing" | "done" | "failed";
+  status: string;
   job_type: string;
-  created_at: string;
-  started_at?: string;
-  finished_at?: string;
-  result?: ScanResult;
+  result?: Record<string, unknown>;
   error?: string;
-}
-
-export async function getJobStatus(jobId: string): Promise<JobStatus> {
+}> {
   const res = await fetch(`${API_BASE}/jobs/${jobId}`);
   if (!res.ok) throw new Error("Job not found");
   return res.json();
 }
 
-export async function listJobs(limit: number = 50): Promise<JobStatus[]> {
-  const res = await fetch(`${API_BASE}/jobs?limit=${limit}`);
-  if (!res.ok) throw new Error("Failed to fetch jobs");
-  return res.json();
-}
-
-export async function scanByUrlAsync(sourceUrl: string, platform?: string, mediaType?: string): Promise<{ status: string; job_id?: string }> {
-  const params = new URLSearchParams();
-  params.append("source_url", sourceUrl);
-  params.append("async_mode", "true");
-  if (platform) params.append("platform", platform);
-  if (mediaType) params.append("media_type", mediaType);
-  const url = `${API_BASE}/scan/url?${params.toString()}`;
-  const res = await fetch(url, { method: "POST" });
+export async function queueTwitterScrape(
+  assetId: string,
+  maxKeywords?: number,
+  postsPerKeyword?: number,
+  mediaPerPost?: number,
+  forcePostUrls?: string[],
+): Promise<TwitterScrapeJobResponse> {
+  const res = await fetch(`${API_BASE}/twitter/scrape/${assetId}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      max_keywords: maxKeywords ?? 5,
+      posts_per_keyword: postsPerKeyword ?? 20,
+      media_per_post: mediaPerPost ?? 3,
+      force_post_urls: forcePostUrls ?? [],
+    }),
+  });
   if (!res.ok) throw new Error(await res.text());
   return res.json();
 }
@@ -384,3 +386,37 @@ export async function toggleMonitoredChannel(id: string): Promise<MonitoredChann
   if (!res.ok) throw new Error("Failed to toggle channel");
   return res.json();
 }
+
+// ─── Monitoring Feed & Pipeline Status ─────────────────────────
+
+export async function getMonitoringFeed(limit: number = 50, offset: number = 0): Promise<MonitoringEvent[]> {
+  const res = await fetch(`${API_BASE}/monitoring/feed?limit=${limit}&offset=${offset}`);
+  if (!res.ok) throw new Error("Failed to fetch monitoring feed");
+  return res.json();
+}
+
+export async function getPipelineStatus(): Promise<PipelineStatus> {
+  const res = await fetch(`${API_BASE}/monitoring/pipeline-status`);
+  if (!res.ok) throw new Error("Failed to fetch pipeline status");
+  return res.json();
+}
+
+// ─── Backward-compatible aliases ───────────────────────────────
+export const listViolations = getViolations;
+export const scanByUrl = scanFromUrl;
+export const scanVideo = scanVideoFile;
+
+/** Generate DMCA notice for a violation (triggers backend PDF generation). */
+export async function generateDMCA(violationId: string): Promise<string> {
+  const res = await fetch(`${API_BASE}/violations/${violationId}/dmca`, { method: "POST" });
+  if (!res.ok) throw new Error("Failed to generate DMCA");
+  return res.text();
+}
+
+/** Get the DMCA PDF download URL for a violation. */
+export function getDMCADownloadUrl(violationId: string): string {
+  return `${API_BASE}/violations/${violationId}/dmca/pdf`;
+}
+
+
+

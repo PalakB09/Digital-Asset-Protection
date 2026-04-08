@@ -54,6 +54,10 @@ async def get_violation_image(violation_id: str, db: Session = Depends(get_db)):
     if not violation:
         raise HTTPException(status_code=404, detail="Violation not found")
     
+    if violation.image_path.startswith("http://") or violation.image_path.startswith("https://"):
+        from fastapi.responses import RedirectResponse
+        return RedirectResponse(violation.image_path)
+        
     filepath = os.path.join(str(VIOLATION_DIR), os.path.basename(violation.image_path))
     if not os.path.exists(filepath):
         raise HTTPException(status_code=404, detail="Image file not found")

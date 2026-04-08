@@ -59,6 +59,19 @@ def _int_env(name: str, default: int = 0) -> int:
     except ValueError:
         return default
 
+# YouTube Data API
+YOUTUBE_API_KEY = (os.environ.get("YOUTUBE_API_KEY", "") or "").strip()
+
+# Google Custom Search API (official, no CAPTCHA/429 issues)
+# Get these from: https://programmablesearchengine.google.com + Google Cloud Console
+GOOGLE_CSE_API_KEY = (os.environ.get("GOOGLE_CSE_API_KEY", "") or os.environ.get("YOUTUBE_API_KEY", "") or "").strip()
+GOOGLE_CSE_CX = (os.environ.get("GOOGLE_CSE_CX", "") or "").strip()
+
+# Hybrid Matcher Parameters
+HYBRID_SCORE_THRESHOLD = 0.75
+TEXT_WEIGHT = 0.4
+HASH_WEIGHT = 0.6
+
 
 # Telegram (Telethon — user account; see scripts/telegram_login.py and TELEGRAM_SETUP.md)
 TELEGRAM_API_ID = _int_env("TELEGRAM_API_ID", 0)

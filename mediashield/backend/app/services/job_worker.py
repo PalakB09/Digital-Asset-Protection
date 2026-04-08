@@ -63,12 +63,54 @@ async def _process_job(job: Job, attempt: int):
         elif job.job_type == "twitter_scrape_asset":
             from app.services.twitter_pipeline import run_twitter_scrape_for_asset
 
-            result = await run_twitter_scrape_for_asset(
+            # Playwright's async API cannot spawn subprocesses inside
+            # uvicorn's event loop on Windows (NotImplementedError).
+            # Workaround: run the entire async function in a *separate*
+            # thread that creates its own fresh event loop.
+            def _run_twitter_in_new_loop():
+                import asyncio as _aio
+                loop = _aio.new_event_loop()
+                try:
+                    return loop.run_until_complete(
+                        run_twitter_scrape_for_asset(
+                            job.payload.get("asset_id", ""),
+                            max_keywords=int(job.payload.get("max_keywords", 5)),
+                            posts_per_keyword=int(job.payload.get("posts_per_keyword", 20)),
+                            media_per_post=int(job.payload.get("media_per_post", 3)),
+                            force_post_urls=[
+                                str(u).strip()
+                                for u in (job.payload.get("force_post_urls") or [])
+                                if str(u).strip()
+                            ],
+                        )
+                    )
+                finally:
+                    loop.close()
+
+            result = await asyncio.to_thread(_run_twitter_in_new_loop)
+        elif job.job_type == "youtube_scrape_asset":
+            from app.services.youtube_pipeline import run_youtube_scrape_for_asset
+
+            result = await asyncio.to_thread(
+                run_youtube_scrape_for_asset,
                 job.payload.get("asset_id", ""),
-                max_keywords=int(job.payload.get("max_keywords", 5)),
-                posts_per_keyword=int(job.payload.get("posts_per_keyword", 20)),
-                media_per_post=int(job.payload.get("media_per_post", 3)),
-                force_post_urls=[str(u).strip() for u in (job.payload.get("force_post_urls") or []) if str(u).strip()],
+                max_keywords=int(job.payload.get("max_keywords", 10)),
+                results_per_keyword=int(job.payload.get("results_per_keyword", 20)),
+            )
+        elif job.job_type == "google_scrape_asset":
+            from app.services.google_pipeline import run_google_scrape_for_asset
+
+            result = await asyncio.to_thread(
+                run_google_scrape_for_asset,
+                job.payload.get("asset_id", ""),
+                max_keywords=int(job.payload.get("max_keywords", 10)),
+                results_per_keyword=int(job.payload.get("results_per_keyword", 10)),
+            )
+        elif job.job_type == "telegram_discover_asset":
+            from app.services.telegram_pipeline import discover_channels_for_asset
+
+            result = await discover_channels_for_asset(
+                job.payload.get("asset_id", ""),
             )
         else:
             raise ValueError(f"Unknown job type: {job.job_type}")

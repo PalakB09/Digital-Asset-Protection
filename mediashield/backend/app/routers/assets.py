@@ -51,6 +51,36 @@ async def _queue_twitter_scrape(asset_id: str) -> str:
     return job.id
 
 
+async def _queue_youtube_scrape(asset_id: str) -> str:
+    """Kick off an automatic YouTube background scrape for a new asset."""
+    job = Job(
+        job_type="youtube_scrape_asset",
+        payload={"asset_id": asset_id},
+    )
+    await get_queue().push(job)
+    return job.id
+
+
+async def _queue_google_scrape(asset_id: str) -> str:
+    """Kick off an automatic Google web+image background scrape for a new asset."""
+    job = Job(
+        job_type="google_scrape_asset",
+        payload={"asset_id": asset_id},
+    )
+    await get_queue().push(job)
+    return job.id
+
+
+async def _queue_telegram_discover(asset_id: str) -> str:
+    """Kick off Telegram channel discovery for a new asset's keywords."""
+    job = Job(
+        job_type="telegram_discover_asset",
+        payload={"asset_id": asset_id},
+    )
+    await get_queue().push(job)
+    return job.id
+
+
 def _require_description(description: str | None) -> str:
     """Non-empty trimmed user content about the asset (required for registration)."""
     d = (description or "").strip()
@@ -183,6 +213,9 @@ async def register_asset(
     db.refresh(asset)
 
     twitter_job_id = await _queue_twitter_scrape(asset_id)
+    youtube_job_id = await _queue_youtube_scrape(asset_id)
+    google_job_id = await _queue_google_scrape(asset_id)
+    telegram_job_id = await _queue_telegram_discover(asset_id)
 
     return {
         "id": asset.id,
@@ -191,8 +224,13 @@ async def register_asset(
         "keywords": asset.keywords_list(),
         "created_at": asset.created_at.isoformat() if asset.created_at else None,
         "description": asset.description,
-        "twitter_scan_job_id": twitter_job_id,
-        "message": "Asset registered — fingerprints + discovery keywords from your description; Twitter scan queued",
+        "scan_jobs": {
+            "twitter": twitter_job_id,
+            "youtube": youtube_job_id,
+            "google": google_job_id,
+            "telegram": telegram_job_id,
+        },
+        "message": "Asset registered — all 4 platform scans queued (Twitter, YouTube, Google, Telegram)",
     }
 
 
@@ -371,6 +409,9 @@ async def register_video_asset(
     db.refresh(asset)
 
     twitter_job_id = await _queue_twitter_scrape(asset_id)
+    youtube_job_id = await _queue_youtube_scrape(asset_id)
+    google_job_id = await _queue_google_scrape(asset_id)
+    telegram_job_id = await _queue_telegram_discover(asset_id)
 
     return {
         "id": asset.id,
@@ -381,8 +422,13 @@ async def register_video_asset(
         "keywords": asset.keywords_list(),
         "created_at": asset.created_at.isoformat() if asset.created_at else None,
         "description": asset.description,
-        "twitter_scan_job_id": twitter_job_id,
-        "message": f"Video registered — {frame_count} frames embedded; discovery keywords from your description; Twitter scan queued",
+        "scan_jobs": {
+            "twitter": twitter_job_id,
+            "youtube": youtube_job_id,
+            "google": google_job_id,
+            "telegram": telegram_job_id,
+        },
+        "message": f"Video registered — {frame_count} frames; all 4 platform scans queued",
     }
 
 
@@ -460,6 +506,9 @@ async def register_asset_from_url(body: RegisterFromUrlRequest, db: Session = De
         db.refresh(asset)
 
         twitter_job_id = await _queue_twitter_scrape(asset_id)
+        youtube_job_id = await _queue_youtube_scrape(asset_id)
+        google_job_id = await _queue_google_scrape(asset_id)
+        telegram_job_id = await _queue_telegram_discover(asset_id)
 
         return {
             "id": asset.id,
@@ -471,8 +520,13 @@ async def register_asset_from_url(body: RegisterFromUrlRequest, db: Session = De
             "keywords": asset.keywords_list(),
             "created_at": asset.created_at.isoformat() if asset.created_at else None,
             "description": asset.description,
-            "twitter_scan_job_id": twitter_job_id,
-            "message": f"Video registered from URL — {frame_count} frames; keywords from your description; Twitter scan queued",
+            "scan_jobs": {
+                "twitter": twitter_job_id,
+                "youtube": youtube_job_id,
+                "google": google_job_id,
+                "telegram": telegram_job_id,
+            },
+            "message": f"Video from URL — {frame_count} frames; all 4 platform scans queued",
         }
 
     # Image path
@@ -538,6 +592,9 @@ async def register_asset_from_url(body: RegisterFromUrlRequest, db: Session = De
     db.refresh(asset)
 
     twitter_job_id = await _queue_twitter_scrape(asset_id)
+    youtube_job_id = await _queue_youtube_scrape(asset_id)
+    google_job_id = await _queue_google_scrape(asset_id)
+    telegram_job_id = await _queue_telegram_discover(asset_id)
 
     return {
         "id": asset.id,
@@ -547,8 +604,13 @@ async def register_asset_from_url(body: RegisterFromUrlRequest, db: Session = De
         "keywords": asset.keywords_list(),
         "created_at": asset.created_at.isoformat() if asset.created_at else None,
         "description": asset.description,
-        "twitter_scan_job_id": twitter_job_id,
-        "message": "Image registered from URL — fingerprints; discovery keywords from your description; Twitter scan queued",
+        "scan_jobs": {
+            "twitter": twitter_job_id,
+            "youtube": youtube_job_id,
+            "google": google_job_id,
+            "telegram": telegram_job_id,
+        },
+        "message": "Image registered from URL — all 4 platform scans queued",
     }
 
 

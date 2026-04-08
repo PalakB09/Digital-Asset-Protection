@@ -329,3 +329,65 @@ async def run_telegram_scrape_for_asset(
         "discovered": discovered,
         "errors": errors,
     }
+
+
+async def discover_channels_for_asset(asset_id: str, max_keywords: int = 5) -> dict:
+    """
+    Auto-discover Telegram channels matching an asset's keywords.
+    Found channels are stored in the MonitoredChannel table so the
+    real-time worker will pick them up automatically.
+    """
+    asset, keywords = _load_asset_keywords(asset_id)
+    if not asset:
+        return {"ok": False, "error": "asset not found"}
+    if not keywords:
+        return {"ok": False, "error": "no keywords on this asset"}
+
+    added_channels: list[str] = []
+    errors: list[str] = []
+
+    try:
+        client = build_client()
+        async with client:
+            for keyword in keywords[:max_keywords]:
+                try:
+                    channels = await find_public_channels_by_keyword(client, keyword, limit=10)
+                    for ch in channels:
+                        uname = (ch.get("username") or "").lower().strip()
+                        if not uname:
+                            continue
+
+                        db = SessionLocal()
+                        try:
+                            existing = db.query(MonitoredChannel).filter(
+                                MonitoredChannel.channel_username == uname
+                            ).first()
+                            if existing:
+                                continue
+
+                            mc = MonitoredChannel(
+                                id=str(uuid4()),
+                                channel_username=uname,
+                                added_via_keyword=keyword,
+                                is_active=True,
+                            )
+                            db.add(mc)
+                            db.commit()
+                            added_channels.append(uname)
+                            log.info("[telegram:discover] added channel @%s via keyword '%s'", uname, keyword)
+                        finally:
+                            db.close()
+                except Exception as e:
+                    errors.append(f"keyword '{keyword}': {str(e)}")
+                    log.warning("[telegram:discover] error for keyword '%s': %s", keyword, e)
+    except Exception as e:
+        return {"ok": False, "error": f"Telegram client error: {str(e)}"}
+
+    return {
+        "ok": True,
+        "asset_id": asset_id,
+        "channels_added": added_channels,
+        "total_added": len(added_channels),
+        "errors": errors,
+    }
+
