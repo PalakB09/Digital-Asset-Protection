@@ -22,3 +22,9 @@ telethon
 redis
 pytest
 pytest-asyncio
+google-api-python-client
+googlesearch-python
+thefuzz
+python-Levenshtein
+bs4
+ddgs

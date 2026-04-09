@@ -19,6 +19,7 @@ def scan_image(
     source_url: str = "upload",
     platform: str = "unknown",
     image_path: str = "",
+    context_text: str | None = None,
 ) -> dict:
     """
     Scan an image against all registered assets.
@@ -28,7 +29,7 @@ def scan_image(
     Returns a dict with scan results.
     """
     # Run through the tiered matcher
-    result: MatchResult = match_image(image, db)
+    result: MatchResult = match_image(image, db, context_text=context_text)
 
     if not result.matched:
         return {

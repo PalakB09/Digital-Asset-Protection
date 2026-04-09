@@ -9,6 +9,7 @@ import {
   getDMCADownloadUrl,
   type Violation,
 } from "@/lib/api";
+import Link from "next/link";
 
 export default function ViolationsPage() {
   const [violations, setViolations] = useState<Violation[]>([]);
@@ -164,9 +165,9 @@ export default function ViolationsPage() {
 
                 {/* Actions */}
                 <div className="flex items-center gap-2 shrink-0">
-                  <a href={`/graph/${v.asset_id}`} className="btn btn-outline text-xs">
+                  <Link href={`/graph/${v.asset_id}`} className="btn btn-outline text-xs">
                     🕸️ Graph
-                  </a>
+                  </Link>
                   <button
                     onClick={() => handleGenerateDMCA(v.id)}
                     disabled={generatingDMCA === v.id}

@@ -31,6 +31,85 @@ async def websocket_alerts(websocket: WebSocket):
 
 
 
+from pydantic import BaseModel, Field
+from fastapi import BackgroundTasks
+from typing import List
+
+class TriggerScanPayload(BaseModel):
+    platform: str = Field(..., description="youtube | google | twitter | telegram | all")
+    max_keywords: int = Field(default=10, ge=1, le=50)
+    results_per_keyword: int = Field(default=20, ge=1, le=100)
+
+
+@router.post("/trigger/{asset_id}")
+async def trigger_asset_scan(
+    asset_id: str,
+    payload: TriggerScanPayload,
+    db: Session = Depends(get_db),
+):
+    """Trigger scans for a specific asset on one or all platforms. Queues jobs via the job queue."""
+    from app.models.asset import Asset
+    from app.services.job_queue import Job, get_queue
+
+    asset = db.query(Asset).filter(Asset.id == asset_id).first()
+    if not asset:
+        raise HTTPException(status_code=404, detail="Asset not found")
+
+    queue = get_queue()
+    platforms_to_run = []
+    job_ids = {}
+
+    platform = payload.platform.lower()
+
+    if platform in ("twitter", "all"):
+        job = Job(job_type="twitter_scrape_asset", payload={
+            "asset_id": asset_id,
+            "max_keywords": payload.max_keywords,
+            "posts_per_keyword": payload.results_per_keyword,
+        })
+        await queue.push(job)
+        job_ids["twitter"] = job.id
+        platforms_to_run.append("twitter")
+
+    if platform in ("youtube", "all"):
+        job = Job(job_type="youtube_scrape_asset", payload={
+            "asset_id": asset_id,
+            "max_keywords": payload.max_keywords,
+            "results_per_keyword": payload.results_per_keyword,
+        })
+        await queue.push(job)
+        job_ids["youtube"] = job.id
+        platforms_to_run.append("youtube")
+
+    if platform in ("google", "all"):
+        job = Job(job_type="google_scrape_asset", payload={
+            "asset_id": asset_id,
+            "max_keywords": payload.max_keywords,
+            "results_per_keyword": payload.results_per_keyword,
+        })
+        await queue.push(job)
+        job_ids["google"] = job.id
+        platforms_to_run.append("google")
+
+    if platform in ("telegram", "all"):
+        job = Job(job_type="telegram_discover_asset", payload={
+            "asset_id": asset_id,
+        })
+        await queue.push(job)
+        job_ids["telegram"] = job.id
+        platforms_to_run.append("telegram")
+
+    if not platforms_to_run:
+        raise HTTPException(status_code=400, detail=f"Unknown platform: {platform}")
+
+    return {
+        "status": "queued",
+        "asset_id": asset_id,
+        "asset_name": asset.name,
+        "platforms_queued": platforms_to_run,
+        "job_ids": job_ids,
+    }
+
 @router.post("")
 async def scan_uploaded_image(
     file: UploadFile = File(...),

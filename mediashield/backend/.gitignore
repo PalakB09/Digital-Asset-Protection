@@ -43,3 +43,5 @@ Thumbs.db
 # Playwright / browser artifacts (if any)
 playwright-report/
 test-results/
+.playwright_x_profile/
+x_state.json
