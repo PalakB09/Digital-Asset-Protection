@@ -1,6 +1,6 @@
 from datetime import datetime
 from uuid import uuid4
-from sqlalchemy import Column, String, Float, DateTime, ForeignKey, Boolean, Text
+from sqlalchemy import Column, String, Float, Integer, DateTime, ForeignKey, Boolean, Text
 from app.database import Base
 
 
@@ -22,6 +22,13 @@ class Violation(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
     leaked_by = Column(String, nullable=True)
 
+    # Insights & AI columns
+    views = Column(Integer, default=0)
+    likes = Column(Integer, default=0)
+    threat_score = Column(Float, default=0.0)
+    ssim_score = Column(Float, nullable=True)     # for Alteration Analysis
+    scraped_text = Column(Text, nullable=True)     # for Gemini NLP
+
     def to_dict(self):
         return {
             "id": self.id,
@@ -38,6 +45,11 @@ class Violation(Base):
             "detection_stage_results": self.detection_stage_results,
             "created_at": self.created_at.isoformat() if self.created_at else None,
             "leaked_by": self.leaked_by,
+            "views": self.views,
+            "likes": self.likes,
+            "threat_score": self.threat_score,
+            "ssim_score": self.ssim_score,
+            "scraped_text": self.scraped_text,
         }
 
 

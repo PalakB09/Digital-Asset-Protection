@@ -394,6 +394,17 @@ export default function AssetsPage() {
                       🕸️ View Propagation Graph
                     </a>
                   )}
+                  <a
+                    href={`/insights/${asset.id}`}
+                    className="btn w-full justify-center text-xs"
+                    style={{
+                      background: "linear-gradient(135deg, rgba(99, 102, 241, 0.15), rgba(139, 92, 246, 0.15))",
+                      color: "#a78bfa",
+                      border: "1px solid rgba(139, 92, 246, 0.35)",
+                    }}
+                  >
+                    📊 View Insights
+                  </a>
                   <a href={`/assets/${asset.id}`} className="btn btn-secondary w-full justify-center text-xs" style={{ background: "rgba(108, 99, 255, 0.1)", color: "var(--accent-primary)" }}>
                     🛡️ Manage Distribution
                   </a>

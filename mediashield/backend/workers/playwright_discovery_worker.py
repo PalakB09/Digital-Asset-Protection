@@ -128,10 +128,34 @@ async def extract_from_target(target: DiscoveryTarget, page) -> list[dict[str, A
         if not media_urls:
             media_urls = [post_url]
 
+        # Extract Basic Metadata (Title & Description) to feed Gemini later
+        scraped_text = ""
+        try:
+            raw_text = await node.inner_text()
+            # Clean up whitespace and limit length
+            scraped_text = " ".join(raw_text.split())[:500]
+        except Exception:
+            scraped_text = ""
+
+        # Extract Views (simple heuristic — looks for numbers near 'views' text)
+        views = 0
+        try:
+            text_lower = scraped_text.lower()
+            if "views" in text_lower:
+                parts = text_lower.split("views")[0].split()
+                if parts:
+                    possible_num = parts[-1].replace(',', '').replace('k', '000').replace('m', '000000')
+                    if possible_num.isdigit():
+                        views = int(possible_num)
+        except Exception:
+            views = 0
+
         items.append(
             {
                 "post_url": post_url,
                 "media_urls": list(dict.fromkeys(media_urls)),
+                "scraped_text": scraped_text,
+                "views": views,
             }
         )
 
@@ -191,6 +215,8 @@ async def run_worker():
                             "media_urls": item["media_urls"],
                             "timestamp": utc_now_iso(),
                             "platform": target.platform,
+                            "scraped_text": item.get("scraped_text", ""),
+                            "views": item.get("views", 0),
                         }
                         accepted = await push_event(client, endpoint, payload)
                         if accepted:

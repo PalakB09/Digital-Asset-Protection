@@ -74,6 +74,17 @@ def _run_sqlite_migrations():
             conn.exec_driver_sql("ALTER TABLE violations ADD COLUMN detection_stage_results TEXT")
         if "leaked_by" not in violation_cols:
             conn.exec_driver_sql("ALTER TABLE violations ADD COLUMN leaked_by VARCHAR")
+        # Insights & AI columns
+        if "views" not in violation_cols:
+            conn.exec_driver_sql("ALTER TABLE violations ADD COLUMN views INTEGER DEFAULT 0")
+        if "likes" not in violation_cols:
+            conn.exec_driver_sql("ALTER TABLE violations ADD COLUMN likes INTEGER DEFAULT 0")
+        if "threat_score" not in violation_cols:
+            conn.exec_driver_sql("ALTER TABLE violations ADD COLUMN threat_score FLOAT DEFAULT 0.0")
+        if "ssim_score" not in violation_cols:
+            conn.exec_driver_sql("ALTER TABLE violations ADD COLUMN ssim_score FLOAT")
+        if "scraped_text" not in violation_cols:
+            conn.exec_driver_sql("ALTER TABLE violations ADD COLUMN scraped_text TEXT")
 
         edge_cols = _table_columns(conn, "propagation_edges")
         if "leaked_by" not in edge_cols:

@@ -37,6 +37,8 @@ class PostEvent:
     media_urls: list[str]
     timestamp: str
     platform: str
+    scraped_text: str = ""
+    views: int = 0
 
 
 class DedupCache:
@@ -179,6 +181,8 @@ def _process_single_media(db, event: PostEvent, media_url: str):
         image_path=filename,
         watermark_verified=watermark_verified,
         attribution=attribution,
+        scraped_text=event.scraped_text,
+        views=event.views,
     )
     db.add(violation)
 
