@@ -16,6 +16,8 @@ class PostEventIn(BaseModel):
     media_urls: list[str] = Field(default_factory=list)
     timestamp: str = Field(..., min_length=1)
     platform: str = Field(..., min_length=1)
+    scraped_text: str = Field(default="")
+    views: int = Field(default=0)
 
 
 @router.post("/events")
@@ -30,6 +32,8 @@ async def ingest_post_event(payload: PostEventIn):
             media_urls=payload.media_urls,
             timestamp=payload.timestamp,
             platform=payload.platform,
+            scraped_text=payload.scraped_text,
+            views=payload.views,
         )
     )
     return result

@@ -63,8 +63,8 @@ export interface GraphData {
 export interface GraphNode {
   id: string;
   label: string;
-  type: "original" | "violation";
-  platform: string;
+  type: "original" | "recipient" | "violation";
+  platform?: string;
   confidence?: number;
   match_tier?: string;
   match_type?: string;
@@ -76,9 +76,10 @@ export interface GraphNode {
 export interface GraphLink {
   source: string;
   target: string;
-  confidence: number;
-  match_type: string;
-  discovered_at: string;
+  label?: string;
+  confidence?: number;
+  match_type?: string;
+  discovered_at?: string;
 }
 
 export interface Stats {
