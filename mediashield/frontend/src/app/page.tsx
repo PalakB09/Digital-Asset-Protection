@@ -1,255 +1,348 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { getStats, listViolations, scanByUrl, getViolationImageUrl, type Stats, type Violation, type ScanResult } from "@/lib/api";
 import Link from "next/link";
+import {
+  getStats,
+  listViolations,
+  scanByUrl,
+  getViolationImageUrl,
+  type Stats,
+  type Violation,
+  type ScanResult,
+} from "@/lib/api";
+import { MetricCard } from "@/components/ui/MetricCard";
+import { Badge } from "@/components/ui/Badge";
+import { Button } from "@/components/ui/Button";
+import { SkeletonTableRow } from "@/components/ui/Skeleton";
+import { PageHeader } from "@/components/ui/PageHeader";
 
-function StatsCard({ label, value, icon, color }: { label: string; value: number | string; icon: string; color: string }) {
+// ─── Quick Scan Widget ────────────────────────────────────────────────────────
+function QuickScanWidget() {
+  const [url, setUrl] = useState("");
+  const [scanning, setScanning] = useState(false);
+  const [progress, setProgress] = useState(0); // 0-100
+  const [result, setResult] = useState<ScanResult | null>(null);
+
+  async function handleScan(e: React.FormEvent) {
+    e.preventDefault();
+    if (!url.trim()) return;
+    setScanning(true);
+    setResult(null);
+    setProgress(10);
+
+    // Simulate progress ticks while waiting
+    const ticker = setInterval(() => {
+      setProgress((p) => Math.min(p + 12, 88));
+    }, 400);
+
+    const isVideo =
+      url.toLowerCase().includes("youtube") ||
+      url.toLowerCase().match(/\.(mp4|mov|webm)$/);
+
+    try {
+      const res = await scanByUrl(url.trim(), "unknown", isVideo ? "video" : "image");
+      clearInterval(ticker);
+      setProgress(100);
+      setResult(res);
+    } catch (err) {
+      clearInterval(ticker);
+      setResult({ matched: false, message: "We couldn't complete the scan. Try again." });
+    } finally {
+      setScanning(false);
+      setUrl("");
+      setTimeout(() => setProgress(0), 600);
+    }
+  }
+
   return (
-    <div className="stats-card animate-fade-in">
-      <div className="flex items-center justify-between mb-3">
-        <span className="text-2xl">{icon}</span>
-        <span className="badge" style={{ background: `${color}20`, color, border: `1px solid ${color}40` }}>
-          Live
-        </span>
-      </div>
-      <p className="text-3xl font-bold mb-1" style={{ color }}>{value}</p>
-      <p className="text-sm" style={{ color: "var(--text-secondary)" }}>{label}</p>
+    <div className="neu-raised p-6">
+      <h2 className="text-[16px] font-bold text-[var(--neu-text)] mb-5 uppercase tracking-wide">Quick Scan</h2>
+
+      <form onSubmit={handleScan} className="space-y-4">
+        <div>
+          <label htmlFor="scan-url" className="block text-[12px] font-bold text-[var(--neu-text-muted)] mb-2 uppercase tracking-widest">
+            URL to scan
+          </label>
+          <div className="relative">
+            <div className="absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-[var(--neu-text-faint)]">
+                <circle cx="11" cy="11" r="7" />
+                <line x1="16.5" y1="16.5" x2="21" y2="21" />
+              </svg>
+            </div>
+            <input
+              id="scan-url"
+              type="url"
+              value={url}
+              onChange={(e) => setUrl(e.target.value)}
+              placeholder="https://twitter.com/..."
+              required
+              className="neu-input pl-10"
+            />
+          </div>
+        </div>
+
+        <div className="flex gap-3">
+          <Button variant="primary" loading={scanning} className="flex-1" type="submit">
+            {!scanning && (
+              <>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                  <circle cx="11" cy="11" r="7" /><line x1="16.5" y1="16.5" x2="21" y2="21" />
+                </svg>
+                Scan Now
+              </>
+            )}
+          </Button>
+          <Link href="/scan" className="shrink-0 flex items-center justify-center">
+            <Button variant="secondary" size="icon" title="Open full scan page">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/>
+              </svg>
+            </Button>
+          </Link>
+        </div>
+      </form>
+
+      {/* Progress bar */}
+      {scanning && progress > 0 && (
+        <div className="mt-5">
+          <div className="neu-progress-track">
+            <div className="neu-progress-fill" style={{ width: `${progress}%` }} />
+          </div>
+          <p className="text-[11px] font-bold tracking-wide uppercase text-[var(--neu-text-muted)] mt-2">Scanning sources…</p>
+        </div>
+      )}
+
+      {/* Scan result */}
+      {result && !scanning && (
+        <div className={`mt-5 p-4 neu-inset-sm rounded-[10px] border-l-4 ${result.matched ? "border-[var(--neu-danger)]" : "border-[var(--neu-success)]"}`}>
+          <p className="font-bold text-[14px]">
+            {result.status === "queued"
+              ? "Scan queued in background"
+              : result.matched
+              ? "Match detected"
+              : "No match found"}
+          </p>
+          {result.confidence !== undefined && (
+            <p className="font-mono text-[11px] font-bold mt-1 text-[var(--neu-text-muted)]">
+              Confidence: {(result.confidence * 100).toFixed(1)}%
+            </p>
+          )}
+          {result.status === "queued" && result.job_id && (
+            <p className="text-[11px] font-mono mt-1 text-[var(--neu-text-faint)]">Job: {result.job_id.substring(0, 8)}…</p>
+          )}
+        </div>
+      )}
     </div>
   );
 }
 
-export default function DashboardPage() {
-  const [stats, setStats] = useState<Stats | null>(null);
-  const [violations, setViolations] = useState<Violation[]>([]);
-  const [loading, setLoading] = useState(true);
+// ─── AI Insights Panel ────────────────────────────────────────────────────────
+function AIInsightsPanel() {
+  const insights = [
+    {
+      type: "info" as const,
+      title: "Content spread detected",
+      body: 'High activity for "Official IPL 2026 promo" across Twitter and Telegram in the last 2 hours. 14 new posts indexed.',
+      accent: "var(--neu-info)",
+    },
+    {
+      type: "violation" as const,
+      title: "Action recommended",
+      body: "3 new critical violations on Instagram require immediate DMCA review. Similarity scores above 95%.",
+      accent: "var(--neu-danger)",
+    },
+  ];
 
-  // Quick Scan
-  const [scanUrl, setScanUrl] = useState("");
-  const [scanning, setScanning] = useState(false);
-  const [scanResult, setScanResult] = useState<ScanResult | null>(null);
+  return (
+    <div className="neu-raised p-6">
+      <div className="flex items-center justify-between mb-5">
+        <h2 className="text-[16px] font-bold text-[var(--neu-text)] uppercase tracking-wide">AI Insights</h2>
+        <Badge variant="info">Live</Badge>
+      </div>
 
-  useEffect(() => {
-    Promise.all([
-      getStats().catch(() => ({ total_assets: 0, total_violations: 0, high_confidence_matches: 0, platforms_monitored: 0 })),
-      listViolations().catch(() => [])
-    ]).then(([st, viols]) => {
-      setStats(st as Stats);
-      setViolations((viols as Violation[]).slice(0, 5)); // top 5
-    }).finally(() => setLoading(false));
-  }, []);
+      <div className="space-y-4">
+        {insights.map((insight, i) => (
+          <div key={i} className="neu-inset-sm p-4 border-l-4" style={{ borderColor: insight.accent }}>
+            <p className="text-[13px] font-bold text-[var(--neu-text)] mb-1.5">{insight.title}</p>
+            <p className="text-[12px] font-sans text-[var(--neu-text-muted)] leading-relaxed">{insight.body}</p>
+          </div>
+        ))}
+      </div>
 
-  async function handleQuickScan(e: React.FormEvent) {
-    e.preventDefault();
-    if (!scanUrl.trim()) return;
+      <Link
+        href="/insights"
+        className="inline-flex items-center gap-1.5 text-[12px] font-bold uppercase tracking-wide text-[var(--neu-primary)] hover:text-[var(--neu-primary-lt)] mt-5 transition-colors"
+      >
+        View full analytics
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+          <line x1="5" y1="12" x2="19" y2="12" /><polyline points="12 5 19 12 12 19" />
+        </svg>
+      </Link>
+    </div>
+  );
+}
 
-    setScanning(true);
-    setScanResult(null);
-
-    const isVideo = scanUrl.toLowerCase().includes("youtube") || scanUrl.toLowerCase().match(/\.(mp4|mov|webm)$/);
-    
-    try {
-      const res = await scanByUrl(scanUrl.trim(), "unknown", isVideo ? "video" : "image");
-      setScanResult(res);
-    } catch (e) {
-      setScanResult({ matched: false, message: `Scan failed: ${e}` });
-    } finally {
-      setScanning(false);
-      setScanUrl("");
-    }
-  }
-
-  function getSeverityColor(confidence: number, tier?: string) {
-    if (tier === "HIGH" || confidence >= 0.9) return "var(--danger)";
-    if (confidence >= 0.7) return "#f59e0b"; // amber
-    if (confidence >= 0.4) return "#3b82f6"; // blue
-    return "var(--success)";
+// ─── Violations Table (dashboard view — top 5) ────────────────────────────────
+function ViolationsTable({ violations, loading }: { violations: Violation[]; loading: boolean; }) {
+  function getSeverityBadgeVariant(confidence: number, tier?: string) {
+    if (tier === "HIGH" || confidence >= 0.9) return "violation" as const;
+    if (confidence >= 0.7) return "pending" as const;
+    if (confidence >= 0.4) return "info" as const;
+    return "neutral" as const;
   }
 
   function getSeverityLabel(confidence: number, tier?: string) {
-    if (tier === "HIGH" || confidence >= 0.9) return "CRITICAL";
-    if (confidence >= 0.7) return "HIGH";
-    if (confidence >= 0.4) return "MEDIUM";
-    return "LOW";
+    if (tier === "HIGH" || confidence >= 0.9) return "Critical";
+    if (confidence >= 0.7) return "High";
+    if (confidence >= 0.4) return "Medium";
+    return "Low";
   }
 
   return (
-    <div>
-      <div className="mb-8">
-        <h1 className="text-3xl font-bold mb-2">Dashboard</h1>
-        <p style={{ color: "var(--text-secondary)" }}>Overview of your digital asset protection status</p>
+    <div className="neu-raised overflow-hidden h-full flex flex-col">
+      <div className="flex items-center justify-between p-6 border-b border-[var(--neu-surface-dk)] opacity-80">
+        <h2 className="text-[16px] font-bold text-[var(--neu-text)] uppercase tracking-wide">Live Violations Feed</h2>
+        <Link href="/violations" className="text-[12px] font-bold uppercase tracking-wide text-[var(--neu-primary)] hover:text-[var(--neu-primary-lt)] transition-colors">
+          View all →
+        </Link>
       </div>
 
-      {loading ? (
-        <div className="flex items-center justify-center py-20">
-          <div className="spinner" style={{ width: 40, height: 40 }}></div>
-        </div>
-      ) : (
-        <>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
-            <StatsCard
-              label="Registered Assets"
-              value={stats?.total_assets ?? 0}
-              icon="🖼️"
-              color="var(--accent-primary)"
-            />
-            <StatsCard
-              label="Total Violations"
-              value={stats?.total_violations ?? 0}
-              icon="⚠️"
-              color="var(--accent-secondary)"
-            />
-            <StatsCard
-              label="High Confidence"
-              value={stats?.high_confidence_matches ?? 0}
-              icon="🔴"
-              color="#f87171"
-            />
-            <StatsCard
-              label="Platforms Tracked"
-              value={stats?.platforms_monitored ?? 0}
-              icon="🌐"
-              color="var(--accent-tertiary)"
-            />
-          </div>
-
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-            {/* Left Column (Quick Scan & AI Insights) */}
-            <div className="lg:col-span-1 space-y-6">
-              
-              {/* Quick Scan Widget */}
-              <div className="card p-5 animate-fade-in">
-                <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">
-                  <span className="text-xl">⚡</span> Quick Scan Widget
-                </h2>
-                <form onSubmit={handleQuickScan} className="space-y-3">
-                  <input
-                    type="url"
-                    placeholder="https://..."
-                    value={scanUrl}
-                    onChange={(e) => setScanUrl(e.target.value)}
-                    required
-                    className="w-full px-3 py-2 rounded-lg text-sm"
-                    style={{
-                      background: "var(--bg-card)",
-                      border: "1px solid var(--border-color)",
-                      color: "var(--text-primary)",
-                    }}
-                  />
-                  <div className="flex gap-2">
-                    <button
-                      type="submit"
-                      disabled={scanning || !scanUrl.trim()}
-                      className="btn btn-primary flex-1 text-sm justify-center"
-                    >
-                      {scanning ? "Scanning..." : "Scan Now"}
-                    </button>
-                    <Link href="/scan" className="btn btn-outline text-sm px-3 flex items-center justify-center" title="Full Scan & Upload">
-                      📁
+      <div className="flex-1 overflow-x-auto">
+        <table className="neu-table">
+          <thead>
+            <tr>
+              <th className="w-12"><span className="sr-only">Thumbnail</span></th>
+              <th>Asset</th>
+              <th>Platform</th>
+              <th>Severity</th>
+              <th className="text-right">Confidence</th>
+              <th>Date</th>
+            </tr>
+          </thead>
+          <tbody>
+            {loading ? (
+              Array.from({ length: 4 }).map((_, i) => <SkeletonTableRow key={i} />)
+            ) : violations.length === 0 ? (
+              <tr>
+                <td colSpan={6} className="px-4 py-16 text-center">
+                  <div className="flex flex-col items-center gap-3">
+                    <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="text-[var(--neu-text-faint)]">
+                      <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+                      <polyline points="9 12 11 14 15 10" />
+                    </svg>
+                    <p className="text-[15px] font-bold text-[var(--neu-text)]">No violations detected</p>
+                    <p className="text-[13px] font-sans text-[var(--neu-text-muted)]">Your assets are currently safe</p>
+                    <Link href="/scan" className="mt-3">
+                      <Button variant="primary">Start scanning</Button>
                     </Link>
                   </div>
-                </form>
+                </td>
+              </tr>
+            ) : (
+              violations.map((v) => {
+                const conf = (v.confidence * 100).toFixed(1);
+                const isCritical = (v.match_tier === "HIGH" || v.confidence >= 0.9);
 
-                {scanResult && (
-                  <div className={`mt-4 p-3 rounded-lg border text-sm ${scanResult.matched ? 'bg-red-500/10 border-red-500/30' : 'bg-green-500/10 border-green-500/30'}`}>
-                    <p className="font-semibold" style={{ color: scanResult.matched ? "var(--danger)" : "var(--success)" }}>
-                      {scanResult.status === "queued" ? "⏳ Scanning in background..." : (scanResult.matched ? "🚨 Match Detected!" : "✅ No Match")}
-                    </p>
-                    {scanResult.confidence !== undefined && (
-                      <p className="mt-1" style={{ color: "var(--text-secondary)" }}>
-                        Confidence: {(scanResult.confidence * 100).toFixed(1)}%
-                      </p>
-                    )}
-                    {scanResult.status === "queued" && scanResult.job_id && (
-                      <p className="mt-1 text-xs" style={{ color: "var(--text-muted)" }}>Job ID: {scanResult.job_id.substring(0, 8)}...</p>
-                    )}
-                  </div>
-                )}
-              </div>
-
-              {/* AI Insights Panel */}
-              <div className="card p-5 animate-fade-in" style={{ animationDelay: "0.1s" }}>
-                <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">
-                  <span className="text-xl">🤖</span> AI Insights
-                </h2>
-                <div className="space-y-4">
-                  <div className="p-3 rounded-lg" style={{ background: "rgba(108, 99, 255, 0.08)", borderLeft: "3px solid var(--accent-primary)" }}>
-                    <p className="text-sm font-medium">Content spread detected</p>
-                    <p className="text-xs mt-1" style={{ color: "var(--text-secondary)" }}>High activity for "Official IPL 2026 promo" across Twitter and Telegram in the last 2 hours.</p>
-                  </div>
-                  <div className="p-3 rounded-lg" style={{ background: "rgba(248, 113, 113, 0.08)", borderLeft: "3px solid #f87171" }}>
-                    <p className="text-sm font-medium">Action Recommended</p>
-                    <p className="text-xs mt-1" style={{ color: "var(--text-secondary)" }}>3 new CRITICAL violations on Instagram require immediate DMCA review.</p>
-                  </div>
-                </div>
-                <Link href="/insights" className="text-xs font-semibold mt-4 inline-block hover:underline" style={{ color: "var(--accent-primary)" }}>
-                  View Full Analytics →
-                </Link>
-              </div>
-
-            </div>
-
-            {/* Right Column (Live Violations Feed) */}
-            <div className="lg:col-span-2 space-y-6">
-              <div className="card p-5 animate-fade-in" style={{ animationDelay: "0.2s" }}>
-                <div className="flex items-center justify-between mb-4">
-                  <h2 className="text-lg font-semibold flex items-center gap-2">
-                    <span className="text-xl">📡</span> Live Violations Feed
-                  </h2>
-                  <Link href="/violations" className="text-xs font-semibold hover:underline" style={{ color: "var(--accent-primary)" }}>
-                    View All →
-                  </Link>
-                </div>
-
-                {violations.length === 0 ? (
-                  <div className="text-center py-10">
-                    <p className="text-3xl mb-2">✅</p>
-                    <p className="text-sm" style={{ color: "var(--text-muted)" }}>No recent violations detected.</p>
-                  </div>
-                ) : (
-                  <div className="space-y-3">
-                    {violations.map((v) => {
-                      const sevColor = getSeverityColor(v.confidence, v.match_tier);
-                      const sevLabel = getSeverityLabel(v.confidence, v.match_tier);
-                      
-                      return (
-                        <div key={v.id} className="flex items-center gap-4 p-3 rounded-lg" style={{ background: "var(--bg-secondary)" }}>
-                          <div className="w-12 h-12 rounded-md overflow-hidden bg-black shrink-0">
-                            {v.image_path?.match(/\.(mp4|mov|webm)$/i) ? (
-                              <video src={getViolationImageUrl(v.id)} muted playsInline className="w-full h-full object-cover" />
-                            ) : (
-                              <img src={getViolationImageUrl(v.id)} alt="Viol" className="w-full h-full object-cover" />
-                            )}
-                          </div>
-                          <div className="flex-1 min-w-0">
-                            <p className="text-sm font-semibold truncate">{v.asset_name}</p>
-                            <div className="flex flex-wrap items-center gap-2 mt-1 text-xs" style={{ color: "var(--text-muted)" }}>
-                              <span className="capitalize text-white">{v.platform}</span>
-                              <span>•</span>
-                              <span>{(v.confidence * 100).toFixed(1)}% match</span>
-                              <span>•</span>
-                              <span>{new Date(v.created_at).toLocaleDateString()}</span>
-                            </div>
-                          </div>
-                          <div className="shrink-0 flex items-center">
-                            <span className="badge text-[10px]" style={{
-                              background: "transparent",
-                              color: sevColor,
-                              border: `1px solid ${sevColor}`
-                            }}>
-                              {sevLabel}
-                            </span>
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
-              </div>
-            </div>
-          </div>
-        </>
-      )}
+                return (
+                  <tr key={v.id}>
+                    <td>
+                      <div className="w-10 h-10 neu-inset rounded-lg overflow-hidden shrink-0">
+                        {v.image_path?.match(/\.(mp4|mov|webm)$/i) ? (
+                          <video src={getViolationImageUrl(v.id)} muted playsInline className="w-full h-full object-cover" />
+                        ) : (
+                          <img src={getViolationImageUrl(v.id)} alt="" className="w-full h-full object-cover" />
+                        )}
+                      </div>
+                    </td>
+                    <td className="max-w-[180px]">
+                      <p className="text-[13px] font-bold font-sans text-[var(--neu-text)] truncate">{v.asset_name}</p>
+                      {v.leaked_by && (
+                        <p className="text-[11px] font-sans font-bold text-[var(--neu-danger)] truncate mt-1">
+                          Leaked by: {v.leaked_by}
+                        </p>
+                      )}
+                    </td>
+                    <td><Badge variant="neutral">{v.platform}</Badge></td>
+                    <td><Badge variant={getSeverityBadgeVariant(v.confidence, v.match_tier)}>{getSeverityLabel(v.confidence, v.match_tier)}</Badge></td>
+                    <td className="text-right">
+                      <span className={`font-mono text-[13px] font-bold ${isCritical ? "text-[var(--neu-danger)]" : "text-[var(--neu-text-muted)]"}`}>
+                        {conf}%
+                      </span>
+                    </td>
+                    <td>
+                      <span className="font-mono text-[11px] text-[var(--neu-text-muted)]" title={new Date(v.created_at).toLocaleString()}>
+                        {new Date(v.created_at).toLocaleDateString()}
+                      </span>
+                    </td>
+                  </tr>
+                );
+              })
+            )}
+          </tbody>
+        </table>
+      </div>
     </div>
+  );
+}
+
+// ─── Dashboard Page ───────────────────────────────────────────────────────────
+export default function DashboardPage() {
+  const [stats, setStats] = useState<Stats | null>(null);
+  const [violations, setViolations] = useState<Violation[]>([]);
+  const [statsLoading, setStatsLoading] = useState(true);
+  const [violationsLoading, setViolationsLoading] = useState(true);
+
+  useEffect(() => {
+    getStats()
+      .catch(() => ({ total_assets: 0, total_violations: 0, high_confidence_matches: 0, platforms_monitored: 0 }))
+      .then((s) => setStats(s as Stats))
+      .finally(() => setStatsLoading(false));
+
+    listViolations()
+      .catch(() => [])
+      .then((v) => setViolations((v as Violation[]).slice(0, 5)))
+      .finally(() => setViolationsLoading(false));
+  }, []);
+
+  return (
+    <>
+      <PageHeader
+        title="DASHBOARD"
+        subtitle="Overview of your digital asset protection status"
+        action={
+          <Link href="/scan">
+            <Button variant="primary">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="11" cy="11" r="7" /><line x1="16.5" y1="16.5" x2="21" y2="21" />
+              </svg>
+              New Scan
+            </Button>
+          </Link>
+        }
+      />
+
+      <div className="flex-1 px-8 py-8 max-w-[1200px] mx-auto w-full">
+        {/* Metric Row */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+          <MetricCard label="Total Assets" value={stats?.total_assets ?? 0} accentColor="blue" loading={statsLoading} />
+          <MetricCard label="Active Monitoring" value={stats?.platforms_monitored ?? 0} accentColor="green" loading={statsLoading} />
+          <MetricCard label="Violations Found" value={stats?.total_violations ?? 0} accentColor="red" loading={statsLoading} />
+          <MetricCard label="High Confidence" value={stats?.high_confidence_matches ?? 0} accentColor="amber" loading={statsLoading} />
+        </div>
+
+        {/* Primary content — 65/35 split */}
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8">
+          <div className="space-y-6">
+            <QuickScanWidget />
+            <AIInsightsPanel />
+          </div>
+          <div className="lg:col-span-2">
+            <ViolationsTable violations={violations} loading={violationsLoading} />
+          </div>
+        </div>
+      </div>
+    </>
   );
 }

@@ -301,8 +301,9 @@ export function getViolationImageUrl(id: string): string {
 
 // ─── Graph ─────────────────────────────────────────────────────
 
-export async function getGraphData(): Promise<GraphData> {
-  const res = await fetch(`${API_BASE}/graph`);
+export async function getGraphData(assetId?: string): Promise<GraphData> {
+  const url = assetId ? `${API_BASE}/graph/${assetId}` : `${API_BASE}/graph`;
+  const res = await fetch(url);
   if (!res.ok) throw new Error("Failed to fetch graph data");
   return res.json();
 }

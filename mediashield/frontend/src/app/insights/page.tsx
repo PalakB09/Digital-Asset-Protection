@@ -1,160 +1,151 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { listAssets, getAssetImageUrl, type Asset } from "@/lib/api";
+import Link from "next/link";
+import { PageHeader } from "@/components/ui/PageHeader";
+import { Button } from "@/components/ui/Button";
+import { Badge } from "@/components/ui/Badge";
+import { MetricCard } from "@/components/ui/MetricCard";
+import { SkeletonAssetCard } from "@/components/ui/Skeleton";
 
-interface InsightData {
-  topLeakedAsset: string;
-  topLeakedAssetCount: number;
-  mostActivePlatform: string;
-  mostActivePlatformCount: number;
-  fastestSpreading: string;
-  fastestSpreadingRate: number; // e.g., violations per hour
-  totalAlerts: number;
+// ─── Mock insight data per asset ───────────────────────────────────────────────
+function mockInsight(asset: Asset) {
+  const score = Math.floor(20 + asset.violation_count * 15 + Math.random() * 30);
+  const threats = asset.violation_count + Math.floor(Math.random() * 4);
+  const leakers = Math.max(1, Math.floor(asset.violation_count * 0.7));
+  const summaries = [
+    "AI analysis indicates high risk of commercial piracy on streaming platforms. Multiple near-duplicate copies detected with minor visual alterations.",
+    "Content identified as spreading through Telegram channels with a coordinated distribution pattern. Watermark integrity compromised in 2 copies.",
+    "Low-frequency leak pattern detected primarily on Twitter. Content appears mostly unaltered — standard distribution profile.",
+    "Gemini threat analysis flags this asset as a priority target. Automated scraping bots detected across 4 platforms.",
+  ];
+  const threatLevel = score >= 70 ? "Critical" : score >= 40 ? "High" : score >= 20 ? "Medium" : "Low";
+  const variant = score >= 70 ? "violation" : score >= 40 ? "pending" : score >= 20 ? "info" : "verified";
+  const daysAgo = Math.floor(Math.random() * 10) + 1;
+  return {
+    score,
+    threats,
+    leakers,
+    summary: summaries[asset.id.charCodeAt(0) % summaries.length],
+    threatLevel,
+    variant,
+    generated: `${daysAgo}d ago`,
+  };
 }
 
+// ─── Insights Card ─────────────────────────────────────────────────────────────
+function InsightCard({ asset }: { asset: Asset }) {
+  const insight = mockInsight(asset);
+
+  return (
+    <div className="neu-raised flex flex-col h-full">
+      <div className="p-6 flex-1 flex flex-col">
+        <div className="flex items-start gap-4 mb-4">
+          <div className="w-14 h-14 neu-inset rounded-[12px] overflow-hidden shrink-0 border border-transparent hover:border-[var(--neu-primary)] transition-colors">
+            <img
+              src={getAssetImageUrl(asset.id)}
+              alt={asset.name}
+              loading="lazy"
+              className="w-full h-full object-cover opacity-90"
+            />
+          </div>
+          <div className="flex-1 min-w-0 pr-2">
+            <p className="text-[14px] font-bold text-[var(--neu-text)] truncate" title={asset.name}>{asset.name}</p>
+            <p className="text-[11px] font-mono text-[var(--neu-text-muted)] mt-1.5">Generated {insight.generated}</p>
+          </div>
+          <Badge variant={insight.variant as "violation" | "pending" | "info" | "verified"}>
+            {insight.threatLevel}
+          </Badge>
+        </div>
+
+        <p className="text-[13px] font-sans text-[var(--neu-text-muted)] leading-relaxed line-clamp-2 mb-6">
+          {insight.summary}
+        </p>
+
+        <div className="flex items-center justify-between mt-auto">
+          <div className="flex items-center gap-3">
+            <span className="text-[10px] font-bold uppercase tracking-widest px-3 py-1.5 rounded-[6px] neu-inset-sm text-[var(--neu-text)]">
+              {insight.threats} threats
+            </span>
+            <span className="text-[10px] font-bold uppercase tracking-widest px-3 py-1.5 rounded-[6px] neu-inset-sm text-[var(--neu-text)]">
+              {insight.leakers} leaker{insight.leakers !== 1 ? "s" : ""}
+            </span>
+          </div>
+          <Link href={`/insights/${asset.id}`}>
+            <Button variant="secondary" size="sm">Report</Button>
+          </Link>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Insights Index Page ───────────────────────────────────────────────────────
 export default function InsightsPage() {
-  const [data, setData] = useState<InsightData | null>(null);
+  const [assets, setAssets] = useState<Asset[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    // Mock analytics data fetch
-    const timer = setTimeout(() => {
-      setData({
-        topLeakedAsset: "Official IPL 2026 Promo",
-        topLeakedAssetCount: 142,
-        mostActivePlatform: "Telegram",
-        mostActivePlatformCount: 89,
-        fastestSpreading: "Episode 3 Leaked Clip",
-        fastestSpreadingRate: 15,
-        totalAlerts: 342,
-      });
-      setLoading(false);
-    }, 600);
-    return () => clearTimeout(timer);
+    listAssets()
+      .then(setAssets)
+      .catch(() => {})
+      .finally(() => setLoading(false));
   }, []);
 
+  const analysed = assets.length;
+  const threats  = assets.reduce((s, a) => s + a.violation_count, 0);
+  const leakers  = assets.reduce((s, a) => s + Math.max(0, Math.floor(a.violation_count * 0.7)), 0);
+  const reports  = assets.filter((a) => a.violation_count > 0).length;
+
   return (
-    <div>
-      <div className="mb-8">
-        <h1 className="text-3xl font-bold mb-2">Insights & Analytics</h1>
-        <p style={{ color: "var(--text-secondary)" }}>
-          High-level reporting on threat vectors and asset propagation
-        </p>
+    <>
+      <PageHeader
+        title="INSIGHTS"
+        subtitle="AI-powered threat intelligence across all registered assets"
+        action={
+          <Button variant="primary">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+              <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
+            </svg>
+            New Report
+          </Button>
+        }
+      />
+
+      <div className="flex-1 px-8 py-8 max-w-[1200px] mx-auto w-full space-y-8">
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-6">
+          <MetricCard label="Assets Analysed"    value={loading ? "—" : analysed}         accentColor="blue"  />
+          <MetricCard label="Threats Identified"  value={loading ? "—" : threats}           accentColor="red"   />
+          <MetricCard label="Leaker Profiles"     value={loading ? "—" : leakers}           accentColor="amber" />
+          <MetricCard label="Reports Generated"   value={loading ? "—" : reports}           accentColor="green" />
+        </div>
+
+        {loading ? (
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <SkeletonAssetCard />
+            <SkeletonAssetCard />
+            <SkeletonAssetCard />
+            <SkeletonAssetCard />
+          </div>
+        ) : assets.length === 0 ? (
+          <div className="neu-inset rounded-[20px] px-8 py-20 text-center">
+            <div className="w-14 h-14 neu-raised rounded-xl flex items-center justify-center mx-auto mb-6 text-[var(--neu-text-faint)]">
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <rect x="3" y="11" width="18" height="10" rx="2"/><circle cx="12" cy="5" r="2"/>
+                <path d="M12 7v4"/><line x1="8" y1="16" x2="8" y2="16"/><line x1="16" y1="16" x2="16" y2="16"/>
+              </svg>
+            </div>
+            <p className="text-[16px] font-bold text-[var(--neu-text)] uppercase tracking-wide mb-2">No insights generated yet</p>
+            <p className="text-[13px] font-sans text-[var(--neu-text-muted)] mb-6">Register assets and run scans before generating AI reports</p>
+            <Button variant="primary">Generate New Report</Button>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            {assets.map((asset) => <InsightCard key={asset.id} asset={asset} />)}
+          </div>
+        )}
       </div>
-
-      {loading ? (
-        <div className="flex justify-center py-20">
-          <div className="spinner" style={{ width: 40, height: 40 }}></div>
-        </div>
-      ) : (
-        <div className="space-y-6">
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 animate-fade-in">
-            {/* Card 1 */}
-            <div className="card p-6" style={{ borderTop: "4px solid var(--danger)" }}>
-              <div className="flex items-center gap-3 mb-4">
-                <span className="text-2xl">🔥</span>
-                <h3 className="text-sm font-semibold uppercase" style={{ color: "var(--text-muted)" }}>Top Leaked Asset</h3>
-              </div>
-              <p className="text-xl font-bold mb-1 truncate">{data?.topLeakedAsset}</p>
-              <p className="text-sm font-mono" style={{ color: "var(--danger)" }}>
-                {data?.topLeakedAssetCount} detected violations
-              </p>
-            </div>
-
-            {/* Card 2 */}
-            <div className="card p-6" style={{ borderTop: "4px solid #3b82f6" }}>
-              <div className="flex items-center gap-3 mb-4">
-                <span className="text-2xl">🌐</span>
-                <h3 className="text-sm font-semibold uppercase" style={{ color: "var(--text-muted)" }}>Most Active Platform</h3>
-              </div>
-              <p className="text-xl font-bold mb-1 capitalize">{data?.mostActivePlatform}</p>
-              <p className="text-sm font-mono" style={{ color: "#3b82f6" }}>
-                {data?.mostActivePlatformCount} recent incidents
-              </p>
-            </div>
-
-            {/* Card 3 */}
-            <div className="card p-6" style={{ borderTop: "4px solid #f59e0b" }}>
-              <div className="flex items-center gap-3 mb-4">
-                <span className="text-2xl">🚀</span>
-                <h3 className="text-sm font-semibold uppercase" style={{ color: "var(--text-muted)" }}>Fastest Spreading</h3>
-              </div>
-              <p className="text-xl font-bold mb-1 truncate">{data?.fastestSpreading}</p>
-              <p className="text-sm font-mono" style={{ color: "#f59e0b" }}>
-                +{data?.fastestSpreadingRate} / hour
-              </p>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 animate-fade-in" style={{ animationDelay: "0.1s" }}>
-            <div className="card p-6">
-              <h3 className="text-lg font-semibold mb-6 flex items-center gap-2">
-                <span className="text-xl">📈</span> Incidents Over Time
-              </h3>
-              <div className="h-64 w-full flex items-end justify-between gap-2 border-b border-gray-700/50 pb-4">
-                {/* Mock Bar Chart */}
-                {[12, 18, 5, 25, 42, 38, 55].map((val, idx) => (
-                  <div key={idx} className="w-full bg-gradient-to-t from-indigo-500/20 to-indigo-500 rounded-t-sm transition-all" style={{ height: `${val}%`, minHeight: '10%' }}></div>
-                ))}
-              </div>
-              <div className="flex justify-between mt-2 text-xs" style={{ color: "var(--text-muted)" }}>
-                <span>Mon</span>
-                <span>Tue</span>
-                <span>Wed</span>
-                <span>Thu</span>
-                <span>Fri</span>
-                <span>Sat</span>
-                <span>Sun</span>
-              </div>
-            </div>
-
-            <div className="card p-6">
-              <h3 className="text-lg font-semibold mb-6 flex items-center gap-2">
-                <span className="text-xl">📊</span> Platform Breakdown
-              </h3>
-              <div className="space-y-4">
-                {/* Mock Progress Bars */}
-                <div>
-                  <div className="flex justify-between text-sm mb-1">
-                    <span className="capitalize">Telegram</span>
-                    <span className="font-mono">45%</span>
-                  </div>
-                  <div className="w-full bg-gray-800 rounded-full h-2">
-                    <div className="bg-blue-500 h-2 rounded-full" style={{ width: "45%" }}></div>
-                  </div>
-                </div>
-                <div>
-                  <div className="flex justify-between text-sm mb-1">
-                    <span className="capitalize">Twitter / X</span>
-                    <span className="font-mono">30%</span>
-                  </div>
-                  <div className="w-full bg-gray-800 rounded-full h-2">
-                    <div className="bg-sky-400 h-2 rounded-full" style={{ width: "30%" }}></div>
-                  </div>
-                </div>
-                <div>
-                  <div className="flex justify-between text-sm mb-1">
-                    <span className="capitalize">Instagram</span>
-                    <span className="font-mono">15%</span>
-                  </div>
-                  <div className="w-full bg-gray-800 rounded-full h-2">
-                    <div className="bg-pink-500 h-2 rounded-full" style={{ width: "15%" }}></div>
-                  </div>
-                </div>
-                <div>
-                  <div className="flex justify-between text-sm mb-1">
-                    <span className="capitalize">Pirate Sites</span>
-                    <span className="font-mono">10%</span>
-                  </div>
-                  <div className="w-full bg-gray-800 rounded-full h-2">
-                    <div className="bg-red-500 h-2 rounded-full" style={{ width: "10%" }}></div>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-    </div>
+    </>
   );
 }

@@ -5,70 +5,489 @@ import {
   getMonitoredChannels,
   toggleMonitoredChannel,
   addMonitoredChannel,
-  type MonitoredChannel,
   getMonitoringFeed,
-  type MonitoringEvent,
   getPipelineStatus,
-  type PipelineStatus,
   triggerAssetScan,
-  type TriggerScanResponse,
   listAssets,
+  type MonitoringEvent,
+  type MonitoredChannel,
+  type PipelineStatus,
   type Asset,
 } from "@/lib/api";
+import { PageHeader } from "@/components/ui/PageHeader";
+import { Button } from "@/components/ui/Button";
+import { Badge } from "@/components/ui/Badge";
+import { Skeleton } from "@/components/ui/Skeleton";
 
 const API_BASE = "http://localhost:8000/api";
 const LIMIT = 50;
 
-const PLATFORM_META: Record<string, { icon: string; color: string; label: string }> = {
-  telegram: { icon: "✈️", color: "#229ED9", label: "Telegram" },
-  twitter:  { icon: "𝕏",  color: "#1DA1F2", label: "Twitter / X" },
-  youtube:  { icon: "▶️", color: "#FF0000", label: "YouTube" },
-  google:   { icon: "🔍", color: "#4285F4", label: "Google Web+Images" },
+// ─── Platform metadata ─────────────────────────────────────────────────────────
+const PLATFORM_META: Record<string, { label: string; color: string }> = {
+  telegram: { label: "Telegram",         color: "var(--neu-info)" },
+  twitter:  { label: "Twitter / X",      color: "var(--neu-primary)" },
+  youtube:  { label: "YouTube",          color: "var(--neu-danger)" },
+  google:   { label: "Google",           color: "var(--neu-primary-lt)" },
+  web:      { label: "Google",           color: "var(--neu-primary-lt)" },
 };
 
-interface TriggerEntry {
-  id: string;
-  assetName: string;
-  platforms: string[];
-  jobIds: Record<string, string>;
-  timestamp: Date;
-  status: "queued" | "running" | "done";
+function PlatformTab({
+  label,
+  active,
+  onClick,
+}: {
+  label: string;
+  active: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      className={`
+        px-5 py-2 text-[12px] font-bold uppercase tracking-wide rounded-[8px] transition-all duration-200
+        ${active
+          ? "neu-raised text-[var(--neu-primary)]"
+          : "text-[var(--neu-text-muted)] hover:text-[var(--neu-text)] hover:shadow-[var(--neu-shadow-xs)]"
+        }
+      `}
+    >
+      {label}
+    </button>
+  );
 }
 
+// ─── Pipeline Status Cards ─────────────────────────────────────────────────────
+function PipelineStatusRow({ status }: { status: PipelineStatus | null }) {
+  const platforms = ["telegram", "twitter", "youtube", "google"] as const;
+
+  return (
+    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+      {platforms.map((key) => {
+        const s = status?.[key];
+        const meta = PLATFORM_META[key];
+        const isActive = (s?.running ?? 0) > 0;
+
+        return (
+          <div key={key} className="neu-raised p-5 border-l-4" style={{ borderLeftColor: meta?.color ?? "var(--neu-surface-dk)" }}>
+            <div className="flex items-center justify-between mb-4">
+              <p className="text-[13px] font-bold uppercase tracking-wide text-[var(--neu-text)]">{meta?.label}</p>
+              {isActive && (
+                <span className="relative flex h-2.5 w-2.5">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full opacity-75" style={{ background: meta?.color }} />
+                  <span className="relative inline-flex h-2.5 w-2.5 rounded-full" style={{ background: meta?.color }} />
+                </span>
+              )}
+            </div>
+            <div className="grid grid-cols-2 gap-3 text-xs">
+              <div className="neu-inset-sm p-2.5 rounded-lg text-center">
+                <p className="text-[10px] font-bold uppercase tracking-widest text-[var(--neu-text-faint)] mb-1">Running</p>
+                <p className={`font-mono text-[16px] font-bold ${isActive ? "text-[var(--neu-primary)]" : "text-[var(--neu-text)]"}`}>{s?.running ?? 0}</p>
+              </div>
+              <div className="neu-inset-sm p-2.5 rounded-lg text-center">
+                <p className="text-[10px] font-bold uppercase tracking-widest text-[var(--neu-text-faint)] mb-1">Done</p>
+                <p className="font-mono text-[16px] font-bold text-[var(--neu-text)]">{s?.completed ?? 0}</p>
+              </div>
+              <div className="neu-inset-sm p-2.5 rounded-lg text-center">
+                <p className="text-[10px] font-bold uppercase tracking-widest text-[var(--neu-text-faint)] mb-1">Violations</p>
+                <p className={`font-mono text-[16px] font-bold ${(s?.total_violations ?? 0) > 0 ? "text-[var(--neu-danger)]" : "text-[var(--neu-text)]"}`}>{s?.total_violations ?? 0}</p>
+              </div>
+              <div className="neu-inset-sm p-2.5 rounded-lg text-center">
+                <p className="text-[10px] font-bold uppercase tracking-widest text-[var(--neu-text-faint)] mb-1">Failed</p>
+                <p className="font-mono text-[16px] font-bold text-[var(--neu-text)]">{s?.failed ?? 0}</p>
+              </div>
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+// ─── Trigger Panel ─────────────────────────────────────────────────────────────
+function TriggerPanel({ assets }: { assets: Asset[] }) {
+  const [assetId, setAssetId] = useState("");
+  const [platform, setPlatform] = useState("all");
+  const [maxKw, setMaxKw] = useState(10);
+  const [loading, setLoading] = useState(false);
+  const [msg, setMsg] = useState<string | null>(null);
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!assetId) return;
+    setLoading(true);
+    setMsg(null);
+    try {
+      const res = await triggerAssetScan(assetId, platform, maxKw);
+      setMsg(`Scan queued for "${res.asset_name}" on ${res.platforms_queued.join(", ")}`);
+      setAssetId("");
+    } catch { setMsg("Failed to start scan."); }
+    finally { setLoading(false); }
+  }
+
+  return (
+    <div className="neu-raised overflow-hidden">
+      <div className="px-6 py-5 border-b border-[var(--neu-surface-dk)] opacity-80">
+        <h2 className="text-[15px] font-bold text-[var(--neu-text)] uppercase tracking-wide">Manual scan trigger</h2>
+        <p className="text-[12px] font-sans font-bold text-[var(--neu-text-muted)] mt-1">Select an asset and dispatch background workers</p>
+      </div>
+      <form onSubmit={handleSubmit} className="p-6 grid grid-cols-1 md:grid-cols-4 gap-4 items-end">
+        <div className="md:col-span-2">
+          <label className="block text-[11px] font-bold uppercase tracking-widest text-[var(--neu-text-muted)] mb-2">Asset</label>
+          <div className="relative">
+            <select
+              value={assetId}
+              onChange={(e) => setAssetId(e.target.value)}
+              className="neu-input appearance-none pr-8"
+            >
+              <option value="">— Select asset —</option>
+              {assets.map((a) => (
+               <option key={a.id} value={a.id}>{a.name} ({a.keywords?.length ?? 0} kw)</option>
+              ))}
+           </select>
+           <div className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-[var(--neu-text-faint)]">
+             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+               <polyline points="6 9 12 15 18 9" />
+             </svg>
+           </div>
+         </div>
+        </div>
+        <div>
+          <label className="block text-[11px] font-bold uppercase tracking-widest text-[var(--neu-text-muted)] mb-2">Platform</label>
+          <div className="relative">
+            <select
+              value={platform}
+              onChange={(e) => setPlatform(e.target.value)}
+              className="neu-input appearance-none pr-8"
+            >
+              <option value="all">All platforms</option>
+              <option value="youtube">YouTube</option>
+              <option value="google">Google Web</option>
+              <option value="twitter">Twitter / X</option>
+              <option value="telegram">Telegram</option>
+            </select>
+            <div className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-[var(--neu-text-faint)]">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <polyline points="6 9 12 15 18 9" />
+              </svg>
+            </div>
+          </div>
+        </div>
+        <div className="flex flex-col gap-2">
+          <label className="block text-[11px] font-bold uppercase tracking-widest text-[var(--neu-text-muted)]">Max keywords: <span className="font-mono text-[var(--neu-text)]">{maxKw}</span></label>
+          <div className="neu-progress-track h-2 mb-3 mt-1">
+             <input type="range" min={1} max={30} value={maxKw} onChange={(e) => setMaxKw(+e.target.value)} className="w-full absolute inset-0 opacity-0 cursor-pointer" />
+             <div className="neu-progress-fill h-full rounded-full" style={{ width: `${(maxKw/30)*100}%` }} />
+          </div>
+        </div>
+        <div className="md:col-span-4 flex justify-end mt-2">
+          <Button variant="primary" type="submit" loading={loading} disabled={!assetId}>
+            {!loading && (
+              <>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                  <polygon points="5 3 19 12 5 21 5 3"/>
+                </svg>
+                Start scan
+              </>
+            )}
+          </Button>
+        </div>
+      </form>
+      {msg && (
+        <div className="px-6 pb-5 pt-2">
+          <div className="p-4 neu-inset-sm rounded-lg border-l-4 border-[var(--neu-info)]">
+            <p className="text-[13px] font-bold text-[var(--neu-text)]">{msg}</p>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Telegram Channels ─────────────────────────────────────────────────────────
+function TelegramChannelsCard({ channels, onRefresh }: { channels: MonitoredChannel[]; onRefresh: () => void }) {
+  const [newChannel, setNewChannel] = useState("");
+  const [adding, setAdding] = useState(false);
+
+  async function handleAdd(e: React.FormEvent) {
+    e.preventDefault();
+    if (!newChannel.trim()) return;
+    setAdding(true);
+    try {
+      await addMonitoredChannel(newChannel.trim());
+      setNewChannel("");
+      onRefresh();
+    } catch { alert("Failed to add channel"); }
+    finally { setAdding(false); }
+  }
+
+  async function handleToggle(id: string) {
+    try { await toggleMonitoredChannel(id); onRefresh(); } catch {}
+  }
+
+  return (
+    <div className="neu-raised overflow-hidden border-l-4 border-[var(--neu-info)]">
+      <div className="flex flex-wrap items-center justify-between px-6 py-5 border-b border-[var(--neu-surface-dk)] opacity-90 gap-4">
+        <h2 className="text-[15px] font-bold text-[var(--neu-text)] uppercase tracking-wide">Telegram channels</h2>
+        <form onSubmit={handleAdd} className="flex gap-3 w-full sm:w-auto">
+          <input
+            type="text"
+            placeholder="@channel"
+            value={newChannel}
+            onChange={(e) => setNewChannel(e.target.value)}
+            className="neu-input w-full sm:w-48"
+          />
+          <Button variant="secondary" type="submit" loading={adding} disabled={!newChannel}>
+            {!adding && "Add"}
+          </Button>
+        </form>
+      </div>
+      {channels.length === 0 ? (
+        <div className="px-6 py-12 text-center">
+          <p className="text-[13px] font-bold text-[var(--neu-text-muted)] uppercase tracking-wide">No channels monitored. Add one above or upload an asset to auto-discover.</p>
+        </div>
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="neu-table">
+            <thead>
+              <tr>
+                <th>Channel</th>
+                <th>Source</th>
+                <th>Status</th>
+                <th className="text-right">Action</th>
+              </tr>
+            </thead>
+            <tbody>
+              {channels.map((ch) => (
+                <tr key={ch.id}>
+                  <td>
+                    <a href={`https://t.me/${ch.channel_username}`} target="_blank" rel="noopener noreferrer"
+                      className="text-[13px] font-mono font-bold text-[var(--neu-primary)] hover:text-[var(--neu-primary-lt)] hover:underline">
+                      @{ch.channel_username}
+                    </a>
+                  </td>
+                  <td className="text-[12px] font-mono text-[var(--neu-text-muted)]">
+                    {ch.added_via_keyword === "manual_ui" ? "Manual" : `kw: "${ch.added_via_keyword}"`}
+                  </td>
+                  <td>
+                    <Badge variant={ch.is_active ? "verified" : "neutral"}>
+                      {ch.is_active ? "Live" : "Paused"}
+                    </Badge>
+                  </td>
+                  <td className="text-right">
+                    <button
+                      onClick={() => handleToggle(ch.id)}
+                      className={`text-[12px] font-bold uppercase tracking-wide transition-colors ${ch.is_active ? "text-[var(--neu-danger)] hover:text-[red]" : "text-[var(--neu-success)] hover:text-[#0f0]"}`}
+                    >
+                      {ch.is_active ? "Pause" : "Resume"}
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Event Feed ────────────────────────────────────────────────────────────────
+function EventFeed({
+  events,
+  loading,
+  loadingMore,
+  hasMore,
+  onLoadMore,
+  onRefresh,
+  filter,
+  onFilterChange,
+  autoRefresh,
+  onAutoRefreshToggle,
+}: {
+  events: MonitoringEvent[];
+  loading: boolean;
+  loadingMore: boolean;
+  hasMore: boolean;
+  onLoadMore: () => void;
+  onRefresh: () => void;
+  filter: string;
+  onFilterChange: (f: string) => void;
+  autoRefresh: boolean;
+  onAutoRefreshToggle: () => void;
+}) {
+  const platformFilters = ["all", "telegram", "twitter", "youtube", "google"];
+  const [mediaViewer, setMediaViewer] = useState<string | null>(null);
+
+  const filtered = filter === "all"
+    ? events
+    : events.filter((e) => {
+        const p = e.platform === "web" ? "google" : e.platform;
+        return p === filter;
+      });
+
+  return (
+    <>
+      <div className="neu-raised overflow-hidden">
+        <div className="px-6 py-5 border-b border-[var(--neu-surface-dk)] opacity-90">
+          <div className="flex items-center justify-between gap-5 flex-wrap">
+            <div className="flex gap-2 neu-inset p-1.5 rounded-[12px] w-fit flex-wrap">
+              {platformFilters.map((f) => (
+                <PlatformTab
+                  key={f}
+                  label={f.charAt(0).toUpperCase() + f.slice(1)}
+                  active={filter === f}
+                  onClick={() => onFilterChange(f)}
+                />
+              ))}
+            </div>
+            
+            <div className="flex items-center gap-4">
+              <p className="text-[11px] font-bold uppercase tracking-wide text-[var(--neu-text-muted)]">Auto-refresh 30s</p>
+              <button
+                onClick={onAutoRefreshToggle}
+                className={`
+                  relative inline-flex h-6 w-11 items-center rounded-full transition-colors duration-200 neu-inset border border-[var(--neu-surface-dk)]
+                `}
+              >
+                <span className={`inline-block h-4 w-4 transform rounded-full bg-[var(--neu-primary)] neu-raised transition-transform duration-200 ${autoRefresh ? "translate-x-6 bg-[var(--neu-success)]" : "translate-x-1 opacity-50 bg-[var(--neu-text-faint)]"}`} />
+              </button>
+              <Button variant="secondary" size="sm" onClick={onRefresh}>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                  <polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 .49-3.5"/>
+                </svg>
+                Refresh
+              </Button>
+            </div>
+          </div>
+
+          <p className="text-[12px] font-mono text-[var(--neu-text-muted)] mt-5">
+            {filtered.length} event{filtered.length !== 1 ? "s" : ""}
+            {filter !== "all" ? ` on ${filter}` : " across all platforms"}
+          </p>
+        </div>
+
+        <div>
+          {loading ? (
+            <div className="p-6 space-y-4">
+              <Skeleton className="h-20 w-full" repeat={5} />
+            </div>
+          ) : filtered.length === 0 ? (
+            <div className="px-6 py-20 text-center">
+              <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="mx-auto mb-4 text-[var(--neu-text-faint)]">
+                <circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="4"/><line x1="12" y1="3" x2="12" y2="8"/>
+              </svg>
+              <p className="text-[16px] font-bold text-[var(--neu-text)] uppercase tracking-wide">No activity detected</p>
+              <p className="text-[13px] font-sans text-[var(--neu-text-muted)] mt-2">
+                Monitoring is active across {Object.keys(PLATFORM_META).length} platforms
+              </p>
+            </div>
+          ) : (
+            filtered.map((evt) => {
+              const pKey = evt.platform === "web" ? "google" : evt.platform;
+              const meta = PLATFORM_META[pKey] || PLATFORM_META.google;
+              const isNew = evt.status === "pending";
+
+              return (
+                <div
+                  key={evt.id}
+                  className="flex items-start gap-5 px-6 py-5 border-b border-[var(--neu-surface-dk)] hover:bg-[var(--neu-surface-lt)] transition-colors group"
+                >
+                  <div className={`w-1.5 self-stretch rounded-full shrink-0 ${isNew ? "bg-[var(--neu-primary)] neu-raised shadow-[0_0_8px_var(--neu-primary)]" : "bg-[var(--neu-surface-dk)] neu-inset"}`} />
+
+                  {evt.image_url ? (
+                    <div
+                      className="w-10 h-10 neu-inset rounded-[10px] overflow-hidden shrink-0 cursor-pointer border border-transparent hover:border-[var(--neu-primary)] transition-colors"
+                      onClick={() => setMediaViewer(API_BASE.replace("/api", "") + evt.image_url)}
+                    >
+                      <img src={API_BASE.replace("/api", "") + evt.image_url} alt="" className="w-full h-full object-cover opacity-90" />
+                    </div>
+                  ) : (
+                    <div className="w-10 h-10 neu-inset rounded-[10px] shrink-0 flex items-center justify-center text-[var(--neu-text-faint)]">
+                      <span className="text-[12px] font-mono">—</span>
+                    </div>
+                  )}
+
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-3 mb-2">
+                      <span
+                        className="text-[10px] font-bold uppercase tracking-widest px-2.5 py-1 rounded-[6px] neu-inset-sm"
+                        style={{ color: meta.color }}
+                      >
+                        {meta.label}
+                      </span>
+                      <Badge variant={isNew ? "info" : "neutral"}>{isNew ? "New" : "Processed"}</Badge>
+                    </div>
+                    <a
+                      href={evt.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-[13px] font-mono text-[var(--neu-primary)] hover:text-[var(--neu-primary-lt)] hover:underline truncate block"
+                      title={evt.url}
+                    >
+                      {evt.url.length > 80 ? `${evt.url.slice(0, 80)}…` : evt.url}
+                    </a>
+                  </div>
+
+                  <span
+                    className="text-[11px] font-mono text-[var(--neu-text-muted)] shrink-0"
+                    title={evt.timestamp ? new Date(evt.timestamp).toLocaleString() : ""}
+                  >
+                    {evt.timestamp ? new Date(evt.timestamp).toLocaleDateString() : "just now"}
+                  </span>
+                </div>
+              );
+            })
+          )}
+        </div>
+
+        {hasMore && !loading && (
+          <div className="px-6 py-4 flex justify-center">
+            <Button variant="ghost" size="sm" loading={loadingMore} onClick={onLoadMore}>
+              {!loadingMore && "Load more"}
+            </Button>
+          </div>
+        )}
+      </div>
+
+      {mediaViewer && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-[var(--neu-surface)]/90 backdrop-blur-sm" onClick={() => setMediaViewer(null)}>
+          <div className="relative neu-raised p-2 rounded-[20px] max-w-[90vw] max-h-[90vh]" onClick={(e) => e.stopPropagation()}>
+            <Button
+              variant="destructive"
+              size="sm"
+              className="absolute -top-12 right-0"
+              onClick={() => setMediaViewer(null)}
+            >
+              Close
+            </Button>
+            <div className="neu-inset rounded-[16px] overflow-hidden">
+              <img src={mediaViewer} alt="Expanded" className="max-w-full max-h-[85vh] object-contain" />
+            </div>
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
+
+// ─── Monitoring Page ───────────────────────────────────────────────────────────
 export default function MonitoringPage() {
-  // Data
   const [events, setEvents] = useState<MonitoringEvent[]>([]);
   const [channels, setChannels] = useState<MonitoredChannel[]>([]);
   const [assets, setAssets] = useState<Asset[]>([]);
   const [pipelineStatus, setPipelineStatus] = useState<PipelineStatus | null>(null);
-
-  // UI
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const [offset, setOffset] = useState(0);
-  const [newChannel, setNewChannel] = useState("");
-  const [adding, setAdding] = useState(false);
   const [platformFilter, setPlatformFilter] = useState("all");
-
-  // Trigger panel
-  const [triggerAssetId, setTriggerAssetId] = useState("");
-  const [triggerPlatform, setTriggerPlatform] = useState("all");
-  const [triggerMaxKw, setTriggerMaxKw] = useState(10);
-  const [triggerResultsPer, setTriggerResultsPer] = useState(20);
-  const [triggerLoading, setTriggerLoading] = useState(false);
-  const [triggerHistory, setTriggerHistory] = useState<TriggerEntry[]>([]);
-
-  // Media viewer
-  const [activeMediaUrl, setActiveMediaUrl] = useState<string | null>(null);
-
-  // Smart polling: track previous running count to detect transitions
+  const [autoRefresh, setAutoRefresh] = useState(true);
   const prevRunningRef = useRef(0);
 
-  const loadData = useCallback(async () => {
+  const loadAll = useCallback(async () => {
     setLoading(true);
     try {
       const [chans, feed, status, assetList] = await Promise.all([
-        getMonitoredChannels().catch(() => []),
+        getMonitoredChannels().catch(() => [] as MonitoredChannel[]),
         getMonitoringFeed(LIMIT, 0),
         getPipelineStatus(),
         listAssets(),
@@ -78,442 +497,68 @@ export default function MonitoringPage() {
       setPipelineStatus(status);
       setAssets(assetList);
       setOffset(LIMIT);
-    } catch (e) {
-      console.error(e);
-    } finally {
-      setLoading(false);
-    }
+    } catch {} finally { setLoading(false); }
   }, []);
 
-  // Smart status polling: auto-refresh feed when jobs finish
+  async function refreshChannels() {
+    const chans = await getMonitoredChannels().catch(() => [] as MonitoredChannel[]);
+    setChannels(chans);
+  }
+
   useEffect(() => {
-    loadData();
+    loadAll();
+  }, [loadAll]);
+
+  useEffect(() => {
+    if (!autoRefresh) return;
     const interval = setInterval(async () => {
-      try {
-        const status = await getPipelineStatus();
-        setPipelineStatus(status);
+      const status = await getPipelineStatus().catch(() => null);
+      if (!status) return;
+      setPipelineStatus(status);
 
-        // Count total running jobs
-        const totalRunning = Object.values(status).reduce((sum, s) => {
-          if (typeof s === "object" && s !== null && "running" in s) {
-            return sum + ((s as Record<string, number>).running ?? 0);
-          }
-          return sum;
-        }, 0);
-
-        // If was running → now idle, auto-refresh the feed
-        if (prevRunningRef.current > 0 && totalRunning === 0) {
-          const feed = await getMonitoringFeed(LIMIT, 0);
-          setEvents(feed);
-          setOffset(LIMIT);
-
-          // Mark trigger history as done
-          setTriggerHistory((prev) =>
-            prev.map((t) => (t.status !== "done" ? { ...t, status: "done" as const } : t))
-          );
-        } else if (totalRunning > 0) {
-          // Mark running
-          setTriggerHistory((prev) =>
-            prev.map((t) => (t.status === "queued" ? { ...t, status: "running" as const } : t))
-          );
-        }
-
-        prevRunningRef.current = totalRunning;
-      } catch {}
-    }, 5000);
+      const totalRunning = Object.values(status).reduce((s, v) => s + ((v as Record<string, number>).running ?? 0), 0);
+      if (prevRunningRef.current > 0 && totalRunning === 0) {
+        const feed = await getMonitoringFeed(LIMIT, 0).catch(() => [] as MonitoringEvent[]);
+        setEvents(feed);
+        setOffset(LIMIT);
+      }
+      prevRunningRef.current = totalRunning;
+    }, 30000);
     return () => clearInterval(interval);
-  }, [loadData]);
+  }, [autoRefresh]);
 
-  async function loadMoreEvents() {
+  async function loadMore() {
     setLoadingMore(true);
     try {
       const more = await getMonitoringFeed(LIMIT, offset);
       setEvents((prev) => [...prev, ...more]);
       setOffset(offset + LIMIT);
-    } catch (e) { console.error(e); }
-    finally { setLoadingMore(false); }
+    } catch {} finally { setLoadingMore(false); }
   }
 
-  async function handleAddChannel(e: React.FormEvent) {
-    e.preventDefault();
-    if (!newChannel.trim()) return;
-    setAdding(true);
-    try {
-      await addMonitoredChannel(newChannel);
-      setNewChannel("");
-      const chans = await getMonitoredChannels();
-      setChannels(chans);
-    } catch { alert("Failed to add channel"); }
-    finally { setAdding(false); }
-  }
-
-  async function handleToggle(id: string) {
-    try {
-      await toggleMonitoredChannel(id);
-      const chans = await getMonitoredChannels();
-      setChannels(chans);
-    } catch (e) { console.error(e); }
-  }
-
-  async function handleTriggerScan(e: React.FormEvent) {
-    e.preventDefault();
-    if (!triggerAssetId) return;
-    setTriggerLoading(true);
-    try {
-      const res = await triggerAssetScan(triggerAssetId, triggerPlatform, triggerMaxKw, triggerResultsPer);
-
-      // Add to trigger history (stackable — doesn't replace previous)
-      const entry: TriggerEntry = {
-        id: Date.now().toString(),
-        assetName: res.asset_name,
-        platforms: res.platforms_queued,
-        jobIds: res.job_ids,
-        timestamp: new Date(),
-        status: "queued",
-      };
-      setTriggerHistory((prev) => [entry, ...prev].slice(0, 20));
-
-      // Reset form for next trigger
-      setTriggerAssetId("");
-    } catch (e) {
-      console.error(e);
-      alert("Failed to trigger scan");
-    } finally {
-      setTriggerLoading(false);
-    }
-  }
-
-  const filteredEvents = platformFilter === "all"
-    ? events
-    : events.filter((e) => {
-        if (platformFilter === "google") return e.platform === "web" || e.platform === "google";
-        return e.platform === platformFilter;
-      });
-
-  function renderPlatformCard(key: string) {
-    const meta = PLATFORM_META[key];
-    const s = pipelineStatus?.[key as keyof PipelineStatus] as Record<string, number> | undefined;
-    if (!s) return null;
-    const isActive = (s.running ?? 0) > 0;
-    return (
-      <div
-        key={key}
-        className="card p-4 animate-fade-in relative overflow-hidden"
-        style={{ borderLeft: `3px solid ${meta.color}` }}
-      >
-        {isActive && (
-          <div className="absolute top-3 right-3">
-            <span className="relative flex h-2.5 w-2.5">
-              <span className="animate-ping absolute inline-flex h-full w-full rounded-full opacity-75" style={{ background: meta.color }}></span>
-              <span className="relative inline-flex rounded-full h-2.5 w-2.5" style={{ background: meta.color }}></span>
-            </span>
-          </div>
-        )}
-        <div className="flex items-center gap-2 mb-3">
-          <span className="text-lg">{meta.icon}</span>
-          <span className="font-bold text-sm">{meta.label}</span>
-        </div>
-        <div className="grid grid-cols-2 gap-2 text-xs">
-          <div>
-            <span style={{ color: "var(--text-muted)" }}>Running</span>
-            <p className="font-bold text-base" style={{ color: isActive ? meta.color : "var(--text-primary)" }}>
-              {s.running ?? 0}
-            </p>
-          </div>
-          <div>
-            <span style={{ color: "var(--text-muted)" }}>Done</span>
-            <p className="font-bold text-base">{s.completed ?? 0}</p>
-          </div>
-          <div>
-            <span style={{ color: "var(--text-muted)" }}>Violations</span>
-            <p className="font-bold text-base" style={{ color: (s.total_violations ?? 0) > 0 ? "#f87171" : "var(--text-primary)" }}>
-              {s.total_violations ?? 0}
-            </p>
-          </div>
-          {key === "telegram" && (
-            <div>
-              <span style={{ color: "var(--text-muted)" }}>Channels</span>
-              <p className="font-bold text-base">{(s as Record<string, number>).channels ?? 0}</p>
-            </div>
-          )}
-          {key !== "telegram" && (
-            <div>
-              <span style={{ color: "var(--text-muted)" }}>Failed</span>
-              <p className="font-bold text-base">{s.failed ?? 0}</p>
-            </div>
-          )}
-        </div>
-      </div>
-    );
-  }
-
-  function triggerStatusBadge(status: TriggerEntry["status"]) {
-    if (status === "queued") return <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-900/40 text-amber-300 border border-amber-500/30">QUEUED</span>;
-    if (status === "running") return <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-blue-900/40 text-blue-300 border border-blue-500/30 animate-pulse">RUNNING</span>;
-    return <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-900/40 text-emerald-300 border border-emerald-500/30">✓ DONE</span>;
-  }
+  const hasMore = events.length > 0 && events.length % LIMIT === 0;
 
   return (
-    <div>
-      {/* Header */}
-      <div className="mb-8">
-        <h1 className="text-3xl font-bold mb-2">Monitoring Command Center</h1>
-        <p style={{ color: "var(--text-secondary)" }}>
-          4-pipeline unified control: auto-triggered on upload, manually controllable per-asset per-platform.
-        </p>
+    <>
+      <PageHeader title="MONITORING" subtitle="Live discovery feed across all monitored platforms" />
+
+      <div className="flex-1 px-8 py-8 max-w-[1200px] mx-auto w-full space-y-8">
+        <PipelineStatusRow status={pipelineStatus} />
+        <TriggerPanel assets={assets} />
+        <TelegramChannelsCard channels={channels} onRefresh={refreshChannels} />
+        <EventFeed
+          events={events}
+          loading={loading}
+          loadingMore={loadingMore}
+          hasMore={hasMore}
+          onLoadMore={loadMore}
+          onRefresh={loadAll}
+          filter={platformFilter}
+          onFilterChange={setPlatformFilter}
+          autoRefresh={autoRefresh}
+          onAutoRefreshToggle={() => setAutoRefresh((v) => !v)}
+        />
       </div>
-
-      {loading ? (
-        <div className="flex justify-center py-20">
-          <div className="spinner" style={{ width: 40, height: 40 }}></div>
-        </div>
-      ) : (
-        <div className="flex flex-col gap-6">
-
-          {/* ─── Platform Status Cards ──────────────────────────── */}
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-            {["telegram", "twitter", "youtube", "google"].map(renderPlatformCard)}
-          </div>
-
-          {/* ─── Per-Asset Trigger Panel ────────────────────────── */}
-          <div className="card p-0 overflow-hidden animate-fade-in" style={{ border: "1px solid rgba(108,99,255,0.25)" }}>
-            <div className="p-5" style={{ background: "rgba(108,99,255,0.05)", borderBottom: "1px solid var(--border-color)" }}>
-              <h2 className="text-lg font-bold flex items-center gap-2">
-                <span>⚡</span> Manual Scan Trigger
-              </h2>
-              <p className="text-xs mt-1" style={{ color: "var(--text-secondary)" }}>
-                Select an asset and platform, configure depth, and dispatch background workers. You can stack multiple scans.
-              </p>
-            </div>
-            <form onSubmit={handleTriggerScan} className="p-5 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4 items-end">
-              <div className="lg:col-span-2">
-                <label className="block text-xs font-semibold mb-1.5 text-gray-300">Asset</label>
-                <select
-                  className="w-full bg-black/30 border border-white/15 rounded-lg p-2.5 text-sm focus:border-indigo-500 outline-none"
-                  value={triggerAssetId}
-                  onChange={(e) => setTriggerAssetId(e.target.value)}
-                >
-                  <option value="">— Select an asset —</option>
-                  {assets.map((a) => (
-                    <option key={a.id} value={a.id}>
-                      {a.name} ({a.keywords?.length ?? 0} keywords)
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div>
-                <label className="block text-xs font-semibold mb-1.5 text-gray-300">Platform</label>
-                <select
-                  className="w-full bg-black/30 border border-white/15 rounded-lg p-2.5 text-sm focus:border-indigo-500 outline-none"
-                  value={triggerPlatform}
-                  onChange={(e) => setTriggerPlatform(e.target.value)}
-                >
-                  <option value="all">ALL Platforms</option>
-                  <option value="youtube">YouTube</option>
-                  <option value="google">Google Web+Images</option>
-                  <option value="twitter">Twitter / X</option>
-                  <option value="telegram">Telegram Discovery</option>
-                </select>
-              </div>
-              <div>
-                <label className="block text-xs font-semibold mb-1.5 text-gray-300">
-                  Keywords: <span className="text-indigo-400">{triggerMaxKw}</span>
-                </label>
-                <input
-                  type="range" min={1} max={30} value={triggerMaxKw}
-                  onChange={(e) => setTriggerMaxKw(parseInt(e.target.value))}
-                  className="w-full accent-indigo-500"
-                />
-              </div>
-              <div>
-                <button
-                  type="submit"
-                  disabled={triggerLoading || !triggerAssetId}
-                  className="btn w-full h-10 font-bold justify-center text-sm"
-                  style={{ background: triggerLoading ? undefined : "linear-gradient(135deg, #6c63ff 0%, #4f46e5 100%)" }}
-                >
-                  {triggerLoading ? "Dispatching..." : "🚀 Start Scan"}
-                </button>
-              </div>
-            </form>
-
-            {/* Trigger history */}
-            {triggerHistory.length > 0 && (
-              <div className="px-5 pb-4 flex flex-col gap-2">
-                <p className="text-[10px] uppercase font-bold tracking-wider" style={{ color: "var(--text-muted)" }}>Recent Triggers</p>
-                {triggerHistory.slice(0, 5).map((t) => (
-                  <div key={t.id} className="flex items-center gap-3 text-xs p-2 rounded-lg" style={{ background: "rgba(255,255,255,0.02)", border: "1px solid var(--border-color)" }}>
-                    {triggerStatusBadge(t.status)}
-                    <span className="font-semibold">{t.assetName}</span>
-                    <span style={{ color: "var(--text-muted)" }}>→</span>
-                    <span className="text-indigo-300">{t.platforms.join(", ")}</span>
-                    <span className="ml-auto text-[10px]" style={{ color: "var(--text-muted)" }}>
-                      {t.timestamp.toLocaleTimeString()}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-
-          {/* ─── Telegram Channels ─────────────────────────────── */}
-          <div className="card p-0 overflow-hidden animate-fade-in" style={{ borderLeft: "3px solid #229ED9" }}>
-            <div className="p-4 flex justify-between items-center" style={{ borderBottom: "1px solid var(--border-color)" }}>
-              <h2 className="font-semibold flex items-center gap-2 text-sm">
-                <span>✈️</span> Telegram Monitored Channels
-              </h2>
-              <form onSubmit={handleAddChannel} className="flex gap-2">
-                <input
-                  type="text" placeholder="@channel"
-                  value={newChannel} onChange={(e) => setNewChannel(e.target.value)}
-                  disabled={adding}
-                  className="px-3 py-1.5 rounded border border-transparent bg-black/20 text-sm focus:outline-none focus:border-indigo-500 min-w-[180px]"
-                />
-                <button type="submit" disabled={adding || !newChannel}
-                  className="btn py-1.5 px-4 text-xs font-semibold"
-                  style={{ background: "rgba(34,158,217,0.2)", color: "#229ED9" }}>
-                  {adding ? "..." : "+ Add"}
-                </button>
-              </form>
-            </div>
-            <div className="overflow-x-auto">
-              <table className="w-full text-left border-collapse text-sm">
-                <thead>
-                  <tr style={{ background: "var(--bg-secondary)", borderBottom: "1px solid var(--border-color)" }}>
-                    <th className="p-3 text-xs font-semibold" style={{ color: "var(--text-muted)" }}>CHANNEL</th>
-                    <th className="p-3 text-xs font-semibold" style={{ color: "var(--text-muted)" }}>SOURCE</th>
-                    <th className="p-3 text-xs font-semibold" style={{ color: "var(--text-muted)" }}>STATUS</th>
-                    <th className="p-3 text-xs font-semibold text-right" style={{ color: "var(--text-muted)" }}>ACTION</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {channels.length === 0 && (
-                    <tr><td colSpan={4} className="p-6 text-center text-xs" style={{ color: "var(--text-muted)" }}>No channels monitored. Add one or upload an asset to auto-discover.</td></tr>
-                  )}
-                  {channels.map((ch) => (
-                    <tr key={ch.id} style={{ borderBottom: "1px solid var(--border-color)" }}>
-                      <td className="p-3 font-semibold">
-                        <a href={`https://t.me/${ch.channel_username}`} target="_blank" rel="noopener noreferrer" className="hover:underline" style={{ color: "var(--text-primary)" }}>@{ch.channel_username} ↗</a>
-                      </td>
-                      <td className="p-3 text-xs font-mono" style={{ color: "var(--text-secondary)" }}>
-                        {ch.added_via_keyword === "manual_ui" ? <span style={{ color: "#229ED9" }}>Manual</span> : `kw: "${ch.added_via_keyword}"`}
-                      </td>
-                      <td className="p-3">
-                        {ch.is_active
-                          ? <span className="badge badge-success text-[10px] animate-pulse">● LIVE</span>
-                          : <span className="badge text-[10px] text-gray-400 border border-gray-600">PAUSED</span>}
-                      </td>
-                      <td className="p-3 text-right">
-                        <button onClick={() => handleToggle(ch.id)} className="text-xs hover:underline"
-                          style={{ color: ch.is_active ? "#f87171" : "var(--success)" }}>
-                          {ch.is_active ? "Pause" : "Resume"}
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
-
-          {/* ─── Event Stream ──────────────────────────────────── */}
-          <div className="card p-0 overflow-hidden animate-fade-in">
-            <div className="p-4 flex justify-between items-center" style={{ borderBottom: "1px solid var(--border-color)", background: "rgba(0,0,0,0.15)" }}>
-              <h2 className="font-semibold flex items-center gap-2 text-sm">
-                <span>📡</span> Violation Event Stream
-                {events.length > 0 && <span className="text-xs font-normal" style={{ color: "var(--text-muted)" }}>({events.length} events)</span>}
-              </h2>
-              <div className="flex gap-2 items-center">
-                <select
-                  className="bg-black/30 border border-white/15 rounded p-1.5 text-xs outline-none focus:border-indigo-500"
-                  value={platformFilter}
-                  onChange={(e) => setPlatformFilter(e.target.value)}
-                >
-                  <option value="all">All Platforms</option>
-                  <option value="telegram">Telegram</option>
-                  <option value="twitter">Twitter</option>
-                  <option value="youtube">YouTube</option>
-                  <option value="google">Google</option>
-                </select>
-                <button className="btn btn-outline text-xs h-8 px-3" onClick={() => loadData()}>
-                  🔄 Refresh
-                </button>
-              </div>
-            </div>
-            <div className="overflow-x-auto">
-              <table className="w-full text-left border-collapse">
-                <thead>
-                  <tr style={{ background: "var(--bg-secondary)", borderBottom: "1px solid var(--border-color)" }}>
-                    <th className="p-3 text-xs font-semibold" style={{ color: "var(--text-muted)", width: 64 }}>MEDIA</th>
-                    <th className="p-3 text-xs font-semibold" style={{ color: "var(--text-muted)" }}>PLATFORM</th>
-                    <th className="p-3 text-xs font-semibold" style={{ color: "var(--text-muted)" }}>SOURCE</th>
-                    <th className="p-3 text-xs font-semibold" style={{ color: "var(--text-muted)" }}>TIME</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {filteredEvents.length === 0 && (
-                    <tr><td colSpan={4} className="p-8 text-center text-sm" style={{ color: "var(--text-muted)" }}>
-                      No violation events yet. Upload an asset to auto-scan or trigger manually above.
-                    </td></tr>
-                  )}
-                  {filteredEvents.map((evt) => {
-                    const pKey = evt.platform === "web" ? "google" : evt.platform;
-                    const meta = PLATFORM_META[pKey] || PLATFORM_META.google;
-                    return (
-                      <tr key={evt.id} style={{ borderBottom: "1px solid var(--border-color)" }} className="hover:bg-white/5 transition-colors">
-                        <td className="p-3">
-                          {evt.image_url ? (
-                            <div
-                              className="w-10 h-10 rounded bg-black/40 border border-white/10 overflow-hidden cursor-pointer hover:border-indigo-500 transition-colors"
-                              onClick={() => setActiveMediaUrl(API_BASE.replace("/api", "") + evt.image_url)}
-                            >
-                              <img src={API_BASE.replace("/api", "") + evt.image_url} alt="" className="w-full h-full object-cover" />
-                            </div>
-                          ) : (
-                            <div className="w-10 h-10 rounded bg-black/40 border border-white/10 flex items-center justify-center text-[9px] text-gray-500">—</div>
-                          )}
-                        </td>
-                        <td className="p-3">
-                          <span className="inline-flex items-center gap-1 text-xs font-medium px-2 py-0.5 rounded-full"
-                            style={{ background: `${meta.color}20`, color: meta.color, border: `1px solid ${meta.color}40` }}>
-                            {meta.icon} {meta.label}
-                          </span>
-                        </td>
-                        <td className="p-3">
-                          <a href={evt.url} target="_blank" rel="noopener noreferrer"
-                            className="text-xs font-mono truncate max-w-[280px] block hover:underline" style={{ color: "var(--accent-primary)" }}>
-                            {evt.url}
-                          </a>
-                        </td>
-                        <td className="p-3 text-xs" style={{ color: "var(--text-secondary)" }}>
-                          {evt.timestamp ? new Date(evt.timestamp).toLocaleString() : "just now"}
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-            {filteredEvents.length > 0 && filteredEvents.length % LIMIT === 0 && (
-              <div className="p-3 flex justify-center border-t border-white/5" style={{ background: "var(--bg-secondary)" }}>
-                <button className="btn btn-outline text-xs" onClick={loadMoreEvents} disabled={loadingMore}>
-                  {loadingMore ? "Loading..." : "Load More"}
-                </button>
-              </div>
-            )}
-          </div>
-        </div>
-      )}
-
-      {/* ─── Media Viewer ───────────────────────────────────── */}
-      {activeMediaUrl && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/90 backdrop-blur-md" onClick={() => setActiveMediaUrl(null)}>
-          <div className="relative max-w-[90vw] max-h-[90vh]">
-            <button className="absolute -top-10 right-0 text-white hover:text-indigo-400 font-bold text-lg">✕ Close</button>
-            <img src={activeMediaUrl} alt="expanded" className="max-w-full max-h-[85vh] rounded-lg shadow-2xl border border-white/10" />
-          </div>
-        </div>
-      )}
-    </div>
+    </>
   );
 }
