@@ -1,7 +1,7 @@
 import { type ButtonHTMLAttributes } from "react";
 
-type ButtonVariant = "primary" | "secondary" | "destructive" | "ghost" | "icon";
-type ButtonSize = "default" | "sm" | "icon";
+type ButtonVariant = "primary" | "secondary" | "destructive" | "ghost" | "icon" | "accent";
+type ButtonSize = "default" | "sm" | "icon" | "icon-sm";
 
 interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
   variant?: ButtonVariant;
@@ -11,17 +11,19 @@ interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
 }
 
 const variantClasses: Record<ButtonVariant, string> = {
-  primary: "neu-btn-primary",
-  secondary: "", // default neu-btn is secondary-like
-  destructive: "neu-btn-danger",
-  ghost: "neu-btn-ghost",
-  icon: "w-8 h-8 p-0 justify-center rounded-lg",
+  primary:     "eg-btn-primary",
+  secondary:   "eg-btn-secondary",
+  destructive: "eg-btn-danger",
+  ghost:       "eg-btn-ghost",
+  icon:        "eg-btn-icon",
+  accent:      "eg-btn-accent",
 };
 
 const sizeClasses: Record<ButtonSize, string> = {
-  default: "h-9 px-4 text-[12px] gap-2",
-  sm: "h-7 px-3 text-[10px] gap-1.5",
-  icon: "w-8 h-8 p-0 justify-center",
+  default: "",
+  sm:      "eg-btn-sm",
+  icon:    "eg-btn-icon",
+  "icon-sm": "eg-btn-icon-sm",
 };
 
 export function Button({
@@ -33,9 +35,10 @@ export function Button({
   disabled,
   ...props
 }: ButtonProps) {
+  const isIconOnly = variant === "icon" || size === "icon" || size === "icon-sm";
   return (
     <button
-      className={`neu-btn ${variantClasses[variant]} ${sizeClasses[size]} ${className}`}
+      className={`eg-btn ${variantClasses[variant]} ${sizeClasses[size]} ${className}`}
       disabled={disabled || loading}
       {...props}
     >
@@ -50,8 +53,8 @@ function LoadingDots() {
       {[0, 1, 2].map((i) => (
         <span
           key={i}
-          className="w-1.5 h-1.5 rounded-full bg-current animate-pulse opacity-80"
-          style={{ animationDelay: `${i * 150}ms` }}
+          className="rounded-full bg-current animate-pulse"
+          style={{ width: 4, height: 4, opacity: 0.8, animationDelay: `${i * 150}ms` }}
         />
       ))}
     </span>

@@ -4,14 +4,14 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import "./globals.css";
 
-// ─── Nav icon set — outline stroke, 18px, 1.5px weight ─────────────
+// ─── Nav icon set ────────────────────────────────────────────────
 function Icon({ name, className = "" }: { name: string; className?: string }) {
   const props = {
-    width: 18,
-    height: 18,
+    width: 16,
+    height: 16,
     viewBox: "0 0 24 24",
     fill: "none",
-    strokeWidth: 1.5,
+    strokeWidth: 1.75,
     strokeLinecap: "round" as const,
     strokeLinejoin: "round" as const,
     className,
@@ -71,7 +71,6 @@ function Icon({ name, className = "" }: { name: string; className?: string }) {
     case "actions":
       return (
         <svg {...props}>
-          <path d="M14.5 3.5 c0 0 2.5 2.5 2.5 5s-2.5 5-2.5 5" stroke="currentColor" />
           <path d="m9 9-6 6 3 3 6-6" stroke="currentColor" />
           <path d="m18 3 3 3-9 9-4-4" stroke="currentColor" />
         </svg>
@@ -101,96 +100,97 @@ const navItems = [
   { href: "/insights",   label: "Insights",    icon: "insights"    },
 ];
 
-// ─── Sidebar — Neumorphic Extruded ────────────────────────────────────────────
-// Width: 240px, softly shadow-raised over content
+// ─── Sidebar — Zed-inspired dark ──────────────────────────────────────────────
 function Sidebar() {
   const pathname = usePathname();
 
   return (
     <aside
-      className="fixed left-0 top-0 bottom-0 w-[240px] flex flex-col z-40 py-4"
+      className="fixed left-0 top-0 bottom-0 w-[220px] flex flex-col z-40"
       style={{
-        background: "var(--neu-surface)",
-        boxShadow: "6px 0 12px var(--neu-surface-dk), -6px 0 12px var(--neu-surface-lt)",
+        background: "var(--bg-secondary)",
+        borderRight: "1px solid var(--border-subtle)",
       }}
     >
-      {/* Logo area */}
-      <div className="h-[56px] flex items-center px-6 mb-3 shrink-0">
+      {/* Logo */}
+      <div className="h-[56px] flex items-center px-5 shrink-0" style={{ borderBottom: "1px solid var(--border-subtle)" }}>
         <div className="flex items-center gap-3">
-          <div className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0 neu-raised" style={{ color: "var(--neu-primary)" }}>
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <div
+            className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0"
+            style={{ background: "var(--accent-soft)", border: "1px solid var(--accent-border)" }}
+          >
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--accent-primary)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
             </svg>
           </div>
           <div>
-            <p className="text-[14px] font-bold text-[var(--neu-text)] leading-tight tracking-wider uppercase">MediaShield</p>
-            <p className="text-[11px] font-mono text-[var(--neu-text-muted)] leading-tight uppercase">Asset Protection</p>
+            <p className="text-[13px] font-semibold leading-tight" style={{ color: "var(--text-primary)", letterSpacing: "0.01em" }}>MediaShield</p>
+            <p className="text-[10px] leading-tight font-mono" style={{ color: "var(--text-muted)" }}>Asset Protection</p>
           </div>
         </div>
       </div>
 
-      {/* Divider */}
-      <div className="mx-5 neu-divider mb-4" />
-
       {/* Navigation */}
-      <div className="px-3 mb-1 flex-1">
-        <p className="text-[10px] font-bold uppercase tracking-[0.15em] text-[var(--neu-text-faint)] px-3 mb-3">
+      <div className="flex-1 px-3 py-4 overflow-y-auto">
+        <p className="text-[10px] font-medium uppercase tracking-[0.12em] px-2 mb-3" style={{ color: "var(--text-muted)" }}>
           Navigation
         </p>
-        <nav className="flex flex-col gap-1.5">
+        <nav className="flex flex-col gap-0.5">
           {navItems.map((item) => {
-            const isActive = pathname === item.href;
+            const isActive = pathname === item.href || (item.href !== "/" && pathname.startsWith(item.href));
             return (
               <Link
                 key={item.href}
                 href={item.href}
-                className={`
-                  relative flex items-center gap-3 h-10 px-3 mx-2 rounded-[10px] text-[13px] font-bold tracking-wide uppercase
-                  transition-all duration-200 select-none
-                  ${isActive
-                    ? "neu-inset text-[var(--neu-primary)]"
-                    : "text-[var(--neu-text-muted)] hover:text-[var(--neu-text)] hover:shadow-[var(--neu-shadow-xs)]"
+                className="relative flex items-center gap-2.5 h-9 px-3 rounded-[8px] text-[13px] font-medium transition-all select-none"
+                style={{
+                  color: isActive ? "var(--accent-primary)" : "var(--text-muted)",
+                  background: isActive ? "var(--accent-soft)" : "transparent",
+                  borderLeft: isActive ? `2px solid var(--accent-primary)` : "2px solid transparent",
+                }}
+                onMouseEnter={(e) => {
+                  if (!isActive) {
+                    const el = e.currentTarget;
+                    el.style.background = "rgba(255,255,255,0.04)";
+                    el.style.color = "var(--text-secondary)";
                   }
-                `}
+                }}
+                onMouseLeave={(e) => {
+                  if (!isActive) {
+                    const el = e.currentTarget;
+                    el.style.background = "transparent";
+                    el.style.color = "var(--text-muted)";
+                  }
+                }}
               >
-                {/* Active indicator dot (instead of left border in neumo) */}
-                {isActive && (
-                  <span
-                    className="absolute left-[6px] w-[6px] h-[6px] rounded-full"
-                    style={{ background: "var(--neu-primary)", boxShadow: "0 0 4px var(--neu-primary-lt)" }}
-                  />
-                )}
-                <div className={isActive ? "ml-2" : "ml-0"}>
-                  <Icon
-                    name={item.icon}
-                    className={isActive ? "text-[var(--neu-primary)]" : "text-[var(--neu-text-faint)]"}
-                  />
-                </div>
-                {item.label}
+                <Icon
+                  name={item.icon}
+                  className={isActive ? "" : ""}
+                  style={ {color: isActive ? "var(--accent-primary)" : "var(--text-muted)" } as React.CSSProperties}
+                />
+                <span>{item.label}</span>
               </Link>
             );
           })}
         </nav>
       </div>
 
-      {/* Bottom divider */}
-      <div className="mx-5 neu-divider mt-4 mb-4" />
-
-      {/* User section — bottom pinned */}
-      <div className="px-5 pb-2">
-        <div className="flex items-center gap-3 px-3 py-2.5 rounded-xl neu-raised transition-all duration-200 group cursor-pointer hover:shadow-[var(--neu-inset-xs)]">
-          <div className="w-8 h-8 rounded-full neu-inset flex items-center justify-center shrink-0">
-            <span className="text-[10px] font-bold text-[var(--neu-primary)]">MS</span>
+      {/* Footer */}
+      <div className="px-3 py-4 shrink-0" style={{ borderTop: "1px solid var(--border-subtle)" }}>
+        <div
+          className="flex items-center gap-2.5 px-3 py-2.5 rounded-lg cursor-pointer transition-all"
+          style={{ background: "rgba(255,255,255,0.03)", border: "1px solid var(--border-subtle)" }}
+        >
+          <div
+            className="w-7 h-7 rounded-lg flex items-center justify-center shrink-0"
+            style={{ background: "var(--accent-soft)" }}
+          >
+            <span className="text-[10px] font-semibold" style={{ color: "var(--accent-primary)" }}>MS</span>
           </div>
           <div className="min-w-0">
-            <p className="text-[12px] font-bold text-[var(--neu-text)] truncate uppercase tracking-wide">MediaShield</p>
-            <p className="text-[10px] font-mono text-[var(--neu-text-muted)] truncate">Admin Account</p>
+            <p className="text-[12px] font-medium truncate" style={{ color: "var(--text-primary)" }}>MediaShield</p>
+            <p className="text-[10px] font-mono truncate" style={{ color: "var(--text-muted)" }}>v1.0 · Active</p>
           </div>
-        </div>
-
-        {/* Version card */}
-        <div className="mt-4 px-3 py-2 neu-inset-sm rounded-lg text-center">
-          <p className="text-[10px] font-mono font-bold text-[var(--neu-text-faint)]">v1.0 · Active</p>
         </div>
       </div>
     </aside>
@@ -202,15 +202,13 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="en" className="h-full">
       <head>
-        <title>MediaShield — Neumorphism System</title>
+        <title>MediaShield — Digital Asset Protection</title>
         <meta name="description" content="Detect, track, and enforce ownership of your media assets across the web." />
         <meta name="viewport" content="width=device-width, initial-scale=1" />
-        {/* Fonts are loaded in globals.css per Neumorphism config */}
       </head>
       <body className="h-full antialiased">
         <Sidebar />
-        {/* Main content area — offset by sidebar width, scrolls independently */}
-        <div className="ml-[240px] min-h-screen flex flex-col">
+        <div className="ml-[220px] min-h-screen flex flex-col" style={{ background: "var(--bg-primary)" }}>
           {children}
         </div>
       </body>

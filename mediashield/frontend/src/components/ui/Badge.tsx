@@ -1,4 +1,4 @@
-type BadgeVariant = "verified" | "violation" | "pending" | "info" | "neutral";
+type BadgeVariant = "verified" | "violation" | "pending" | "info" | "neutral" | "accent";
 
 interface BadgeProps {
   variant: BadgeVariant;
@@ -7,17 +7,30 @@ interface BadgeProps {
 }
 
 const variantStyles: Record<BadgeVariant, string> = {
-  verified: "neu-badge-success",
-  violation: "neu-badge-danger",
-  pending: "neu-badge-warning",
-  info: "neu-badge-info",
-  neutral: "",
+  verified: "eg-badge-success",
+  violation: "eg-badge-danger",
+  pending:   "eg-badge-warning",
+  info:      "eg-badge-accent",
+  neutral:   "eg-badge-neutral",
+  accent:    "eg-badge-accent",
+};
+
+const dotColors: Record<BadgeVariant, string> = {
+  verified:  "var(--success)",
+  violation: "var(--danger)",
+  pending:   "var(--warning)",
+  info:      "var(--accent-primary)",
+  neutral:   "var(--text-muted)",
+  accent:    "var(--accent-primary)",
 };
 
 export function Badge({ variant, children, className = "" }: BadgeProps) {
   return (
-    <span className={`neu-badge ${variantStyles[variant]} ${className}`}>
-      <span className="w-1.5 h-1.5 rounded-full bg-current opacity-80 shrink-0" />
+    <span className={`eg-badge ${variantStyles[variant]} ${className}`}>
+      <span
+        className="shrink-0 rounded-full"
+        style={{ width: 5, height: 5, background: dotColors[variant] }}
+      />
       {children}
     </span>
   );

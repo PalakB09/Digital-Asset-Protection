@@ -3,75 +3,220 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useParams } from "next/navigation";
 import { getGraphData, getAsset, type GraphData, type GraphNode, type Asset } from "@/lib/api";
-import { PageHeader } from "@/components/ui/PageHeader";
-import { Button } from "@/components/ui/Button";
-import { Badge } from "@/components/ui/Badge";
-import { MetricCard } from "@/components/ui/MetricCard";
 import { Skeleton } from "@/components/ui/Skeleton";
+import Link from "next/link";
 
-// ─── Graph Legend ─────────────────────────────────────────────────────────────
+// ─── Design tokens ────────────────────────────────────────────────────────────
+const C = {
+  bg:          "#0D0F12",
+  surface:     "#13161B",
+  surfaceSide: "#0F1115",
+  border:      "#1E2228",
+  muted:       "#6B7280",
+  secondary:   "#9CA3AF",
+  body:        "#F9FAFB",
+  accent:      "#3B82F6",
+  danger:      "#DC2626",
+  warning:     "#D97706",
+  success:     "#16A34A",
+  purple:      "#8B5CF6",
+} as const;
+
+// Node ring colours per type (spec)
+const nodeRing = {
+  original:  C.body,      // #F9FAFB — white ring for root
+  recipient: C.warning,   // #D97706 — amber
+  violation: C.danger,    // #DC2626 — red
+} as const;
+
+// Edge colours per relationship (at given opacity)
+const edgeColor = (tgtType: string) => {
+  if (tgtType === "violation") return C.danger;
+  if (tgtType === "recipient") return C.warning;
+  return C.accent;
+};
+
+const edgeOpacity = (tgtType: string) => {
+  if (tgtType === "violation") return 0.65;
+  if (tgtType === "recipient") return 0.65;
+  return 0.45;
+};
+
+const nodeDiameter = { original: 56, recipient: 44, violation: 36 } as const;
+
+// ─── Font helpers (resolved via CSS vars — no hardcoded strings) ─────────────
+const FONT_UI   = "var(--font-body)";
+const FONT_MONO = "var(--font-mono)";
+
+// ─── Confidence colour ────────────────────────────────────────────────────────
+function confColor(pct: number) {
+  if (pct >= 80) return C.danger;
+  if (pct >= 60) return C.warning;
+  return C.muted;
+}
+
+// ─── Collapsible Graph Legend (floating, bottom-right of canvas) ──────────────
 function GraphLegend() {
+  const [collapsed, setCollapsed] = useState(false);
   const items = [
-    { color: "var(--neu-primary)", label: "Origin node" },
-    { color: "var(--neu-info)", label: "First spread" },
-    { color: "var(--neu-surface-dk)", label: "Further spread" },
-    { color: "var(--neu-danger)", label: "Violation node" },
+    { color: C.body,    label: "Original Asset" },
+    { color: C.warning, label: "Recipient / Leaker" },
+    { color: C.danger,  label: "Violation Node" },
   ];
   return (
-    <div className="absolute top-4 right-4 neu-raised px-4 py-3 opacity-90 backdrop-blur-sm shadow-[var(--neu-shadow-lg)] pointer-events-none">
-      <p className="text-[10px] font-bold text-[var(--neu-text-faint)] uppercase tracking-widest mb-3">Legend</p>
-      <div className="space-y-2">
-        {items.map((item) => (
-          <div key={item.color} className="flex items-center gap-3">
-            <div className="w-2.5 h-2.5 rounded-[4px] shrink-0 neu-inset" style={{ background: item.color }} />
-            <span className="text-[12px] font-bold text-[var(--neu-text)]">{item.label}</span>
-          </div>
-        ))}
+    <div
+      style={{
+        position: "absolute",
+        bottom: 16,
+        right: 16,
+        background: C.surface,
+        border: `1px solid ${C.border}`,
+        borderRadius: 8,
+        padding: 16,
+        minWidth: 180,
+        zIndex: 10,
+        userSelect: "none",
+      }}
+    >
+      {/* Header row */}
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: collapsed ? 0 : 12 }}>
+        <p style={{ fontSize: 11, fontWeight: 500, letterSpacing: "0.08em", textTransform: "uppercase", color: C.muted, fontFamily: FONT_UI, lineHeight: 1 }}>
+          Node Types
+        </p>
+        <button
+          onClick={() => setCollapsed(v => !v)}
+          style={{ fontSize: 11, color: C.muted, background: "none", border: "none", cursor: "pointer", fontFamily: FONT_UI, padding: "0 0 0 8px" }}
+        >
+          {collapsed ? "Show ▼" : "Hide ▲"}
+        </button>
       </div>
+
+      {!collapsed && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+          {items.map(item => (
+            <div key={item.label} style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              {/* Ring swatch — hollow circle with colored stroke */}
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                <circle cx="8" cy="8" r="6" stroke={item.color} strokeWidth="2" fill="none" />
+              </svg>
+              <span style={{ fontSize: 13, fontWeight: 400, color: C.body, fontFamily: FONT_UI }}>
+                {item.label}
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
 
-// ─── Node Tooltip ─────────────────────────────────────────────────────────────
+// ─── Node Tooltip (dark, structured, NOT shown for root) ─────────────────────
 function NodeTooltip({ node, x, y }: { node: GraphNode; x: number; y: number }) {
-  const typeVariant = {
-    original:  "info" as const,
-    recipient: "pending" as const,
-    violation: "violation" as const,
+  if (node.type === "original") return null;
+
+  const typeColors: Record<string, string> = {
+    recipient: C.warning,
+    violation: C.danger,
   };
+  const typeBg: Record<string, string> = {
+    recipient: "rgba(217,119,6,0.15)",
+    violation: "rgba(220,38,38,0.15)",
+  };
+  const confPct = node.confidence != null ? node.confidence * 100 : null;
+
+  // Keep tooltip away from screen edges
+  const left = x + 18;
+  const top  = y - 8;
+
   return (
     <div
-      className="fixed z-50 neu-raised px-5 py-4 pointer-events-none animate-in fade-in zoom-in-95 duration-200"
-      style={{ left: x + 16, top: y - 8, maxWidth: 300 }}
+      style={{
+        position: "fixed",
+        left,
+        top,
+        zIndex: 50,
+        background: "#1A1D23",
+        border: `1px solid #2D3139`,
+        borderRadius: 8,
+        padding: "12px 16px",
+        boxShadow: "0 8px 24px rgba(0,0,0,0.45)",
+        maxWidth: 260,
+        pointerEvents: "none",
+        fontFamily: FONT_UI,
+      }}
     >
-      <div className="flex items-center gap-2 mb-3">
-        <Badge variant={typeVariant[node.type]}>{node.type}</Badge>
-        {node.platform && <Badge variant="neutral">{node.platform}</Badge>}
-      </div>
-      <p className="text-[14px] font-bold text-[var(--neu-text)] mb-2 truncate" title={node.label}>
+      {/* Type badge */}
+      <span
+        style={{
+          display: "inline-block",
+          fontSize: 11,
+          fontWeight: 500,
+          padding: "2px 8px",
+          borderRadius: 4,
+          background: typeBg[node.type] ?? "rgba(255,255,255,0.08)",
+          color: typeColors[node.type] ?? C.secondary,
+          marginBottom: 8,
+          letterSpacing: "0.04em",
+        }}
+      >
+        {node.type}
+      </span>
+
+      {/* Label */}
+      <p
+        style={{
+          fontSize: 14,
+          fontWeight: 600,
+          color: C.body,
+          marginBottom: 8,
+          whiteSpace: "nowrap",
+          overflow: "hidden",
+          textOverflow: "ellipsis",
+          maxWidth: 220,
+        }}
+        title={node.label}
+      >
         {node.label}
       </p>
-      {node.source_url && (
-        <p className="text-[11px] font-mono text-[var(--neu-primary)] truncate mb-2" title={node.source_url}>
-          {node.source_url.length > 40 ? `${node.source_url.slice(0, 40)}…` : node.source_url}
-        </p>
-      )}
-      {node.confidence != null && (
-        <p className="text-[11px] font-sans text-[var(--neu-text-muted)]">Confidence: <strong className="font-mono text-[var(--neu-text)]">{(node.confidence * 100).toFixed(1)}%</strong></p>
-      )}
-      {node.created_at && (
-        <p className="text-[11px] font-mono text-[var(--neu-text-faint)] mt-2">{new Date(node.created_at).toLocaleString()}</p>
-      )}
-      {node.leaked_by && (
-        <p className="text-[11px] font-mono font-bold text-[var(--neu-danger)] mt-2">Leaked by: {node.leaked_by}</p>
-      )}
+
+      <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+        {node.platform && (
+          <p style={{ fontSize: 12, color: C.secondary, fontFamily: FONT_MONO }}>
+            Platform: {node.platform}
+          </p>
+        )}
+        {confPct !== null && (
+          <p style={{ fontSize: 12, color: confColor(confPct!) }}>
+            Confidence: <span style={{ fontFamily: FONT_MONO }}>{confPct!.toFixed(1)}%</span>
+          </p>
+        )}
+        {node.source_url && (
+          <p
+            style={{ fontSize: 11, color: C.accent, fontFamily: FONT_MONO, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: 220 }}
+            title={node.source_url}
+          >
+            {node.source_url.length > 38 ? `${node.source_url.slice(0, 38)}…` : node.source_url}
+          </p>
+        )}
+        {node.created_at && (
+          <p style={{ fontSize: 11, color: C.muted, fontFamily: FONT_MONO, marginTop: 2 }}>
+            {new Date(node.created_at).toLocaleString()}
+          </p>
+        )}
+        {node.leaked_by && (
+          <p style={{ fontSize: 12, color: C.danger, fontFamily: FONT_MONO, marginTop: 4 }}>
+            Leaked by: {node.leaked_by}
+          </p>
+        )}
+      </div>
     </div>
   );
 }
 
 // ─── SVG Graph Canvas ─────────────────────────────────────────────────────────
 function GraphCanvas({ graphData }: { graphData: GraphData }) {
-  const svgRef = useRef<SVGSVGElement>(null);
+  const svgRef    = useRef<SVGSVGElement>(null);
+  const wrapRef   = useRef<HTMLDivElement>(null);
   const [tooltip, setTooltip] = useState<{ x: number; y: number; node: GraphNode } | null>(null);
 
   type PositionedNode = GraphNode & { x: number; y: number };
@@ -79,47 +224,103 @@ function GraphCanvas({ graphData }: { graphData: GraphData }) {
   const renderGraph = useCallback(() => {
     if (!svgRef.current || !graphData || graphData.nodes.length === 0) return;
     const svg = svgRef.current;
-    // use computed style values for colors
-    const primaryColor = getComputedStyle(document.documentElement).getPropertyValue('--neu-primary').trim() || "#2563EB";
-    const dangerColor = getComputedStyle(document.documentElement).getPropertyValue('--neu-danger').trim() || "#EF4444";
-    const infoColor = getComputedStyle(document.documentElement).getPropertyValue('--neu-info').trim() || "#93C5FD";
-    
-    const width = svg.clientWidth;
-    const height = svg.clientHeight;
-    const cx = width / 2;
+    const width  = svg.clientWidth  || 900;
+    const height = svg.clientHeight || 580;
+    const cx = width  / 2;
     const cy = height / 2;
 
+    // Clear
     while (svg.firstChild) svg.removeChild(svg.firstChild);
 
-    // Arrow markers
+    // ── Defs (markers + filters) ──────────────────────────────────────────────
     const defs = document.createElementNS("http://www.w3.org/2000/svg", "defs");
-    const mkArrow = (id: string, color: string) => {
+
+    // Arrowhead per edge color
+    const arrowColors = [
+      { id: "arr-blue",    color: C.accent  },
+      { id: "arr-red",     color: C.danger  },
+      { id: "arr-amber",   color: C.warning },
+    ];
+    arrowColors.forEach(({ id, color }) => {
       const m = document.createElementNS("http://www.w3.org/2000/svg", "marker");
       m.setAttribute("id", id);
-      m.setAttribute("viewBox", "-0 -5 10 10");
-      m.setAttribute("refX", "24");
+      m.setAttribute("viewBox", "-0 -4 8 8");
+      m.setAttribute("refX", "8");
       m.setAttribute("refY", "0");
       m.setAttribute("markerWidth", "6");
       m.setAttribute("markerHeight", "6");
       m.setAttribute("orient", "auto");
       const p = document.createElementNS("http://www.w3.org/2000/svg", "path");
-      p.setAttribute("d", "M 0,-5 L 10,0 L 0,5");
+      p.setAttribute("d", "M 0,-4 L 8,0 L 0,4");
       p.setAttribute("fill", color);
+      p.setAttribute("fill-opacity", "0.7");
       m.appendChild(p);
-      return m;
-    };
-    defs.appendChild(mkArrow("arrow-blue", primaryColor));
-    defs.appendChild(mkArrow("arrow-red", dangerColor));
+      defs.appendChild(m);
+    });
+
+    // Per-node glow filter for root node
+    const glowFilter = document.createElementNS("http://www.w3.org/2000/svg", "filter");
+    glowFilter.setAttribute("id", "glow-root");
+    glowFilter.setAttribute("x", "-30%"); glowFilter.setAttribute("y", "-30%");
+    glowFilter.setAttribute("width", "160%"); glowFilter.setAttribute("height", "160%");
+    glowFilter.innerHTML = `
+      <feGaussianBlur stdDeviation="4" result="blur"/>
+      <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+    `;
+    defs.appendChild(glowFilter);
+
     svg.appendChild(defs);
 
-    const nodes = graphData.nodes;
-    const links = graphData.links;
-    const recipients = nodes.filter((n) => n.type === "recipient");
-    const violations = nodes.filter((n) => n.type === "violation");
+    // ── Canvas background ─────────────────────────────────────────────────────
+    const bgRect = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+    bgRect.setAttribute("width",  String(width));
+    bgRect.setAttribute("height", String(height));
+    bgRect.setAttribute("fill",   C.bg);
+    svg.appendChild(bgRect);
+
+    // Radial gradient centre glow
+    const radGrad = document.createElementNS("http://www.w3.org/2000/svg", "radialGradient");
+    radGrad.setAttribute("id", "bg-grad");
+    radGrad.setAttribute("cx", "50%"); radGrad.setAttribute("cy", "50%");
+    radGrad.setAttribute("r", "50%");
+    radGrad.innerHTML = `
+      <stop offset="0%"   stop-color="${C.surface}" stop-opacity="1"/>
+      <stop offset="70%"  stop-color="${C.bg}"      stop-opacity="1"/>
+    `;
+    defs.appendChild(radGrad);
+    const gGlow = document.createElementNS("http://www.w3.org/2000/svg", "ellipse");
+    gGlow.setAttribute("cx", String(cx));   gGlow.setAttribute("cy", String(cy));
+    gGlow.setAttribute("rx", String(width * 0.35));
+    gGlow.setAttribute("ry", String(height * 0.35));
+    gGlow.setAttribute("fill", "url(#bg-grad)");
+    svg.appendChild(gGlow);
+
+    // Dot grid (5% opacity)
+    const dotPattern = document.createElementNS("http://www.w3.org/2000/svg", "pattern");
+    dotPattern.setAttribute("id",     "dot-grid");
+    dotPattern.setAttribute("width",  "24"); dotPattern.setAttribute("height", "24");
+    dotPattern.setAttribute("patternUnits", "userSpaceOnUse");
+    const dot = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+    dot.setAttribute("cx", "1"); dot.setAttribute("cy", "1"); dot.setAttribute("r", "1");
+    dot.setAttribute("fill", "#374151");
+    dotPattern.appendChild(dot);
+    defs.appendChild(dotPattern);
+    const dotOverlay = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+    dotOverlay.setAttribute("width",  String(width));
+    dotOverlay.setAttribute("height", String(height));
+    dotOverlay.setAttribute("fill",   "url(#dot-grid)");
+    dotOverlay.setAttribute("opacity", "0.05");
+    svg.appendChild(dotOverlay);
+
+    // ── Node positioning (PRESERVED EXISTING ALGORITHM) ───────────────────────
+    const nodes      = graphData.nodes;
+    const links      = graphData.links;
+    const recipients = nodes.filter(n => n.type === "recipient");
+    const violations = nodes.filter(n => n.type === "violation");
     const innerR = Math.min(width, height) * 0.18;
     const outerR = Math.min(width, height) * 0.35;
 
-    const positioned: PositionedNode[] = nodes.map((n) => {
+    const positioned: PositionedNode[] = nodes.map(n => {
       if (n.type === "original") return { ...n, x: cx, y: cy };
       if (n.type === "recipient") {
         const idx = recipients.indexOf(n);
@@ -131,122 +332,343 @@ function GraphCanvas({ graphData }: { graphData: GraphData }) {
       return { ...n, x: cx + Math.cos(a) * outerR, y: cy + Math.sin(a) * outerR };
     });
 
-    const nodeMap = new Map(positioned.map((n) => [n.id, n]));
+    const nodeMap = new Map(positioned.map(n => [n.id, n]));
 
-    // Links
-    links.forEach((link) => {
+    // ── Edges ─────────────────────────────────────────────────────────────────
+    links.forEach(link => {
       const src = nodeMap.get(link.source as string);
       const tgt = nodeMap.get(link.target as string);
       if (!src || !tgt) return;
-      const isViolation = tgt.type === "violation";
+
+      const color   = edgeColor(tgt.type);
+      const opacity = edgeOpacity(tgt.type);
+      const arrowId = tgt.type === "violation" ? "arr-red" : tgt.type === "recipient" ? "arr-amber" : "arr-blue";
+
+      // Slightly shorten line so it ends at node ring edge
+      const tgtR = nodeDiameter[tgt.type] / 2;
+      const dx = tgt.x - src.x;
+      const dy = tgt.y - src.y;
+      const dist = Math.sqrt(dx * dx + dy * dy) || 1;
+      const ex = tgt.x - (dx / dist) * (tgtR + 4);
+      const ey = tgt.y - (dy / dist) * (tgtR + 4);
+
       const line = document.createElementNS("http://www.w3.org/2000/svg", "line");
-      line.setAttribute("x1", String(src.x));
-      line.setAttribute("y1", String(src.y));
-      line.setAttribute("x2", String(tgt.x));
-      line.setAttribute("y2", String(tgt.y));
-      line.setAttribute("stroke", isViolation ? dangerColor : primaryColor);
-      line.setAttribute("stroke-width", "2");
-      line.setAttribute("stroke-opacity", "0.5");
-      line.setAttribute("marker-end", `url(#${isViolation ? "arrow-red" : "arrow-blue"})`);
+      line.setAttribute("x1", String(src.x));   line.setAttribute("y1", String(src.y));
+      line.setAttribute("x2", String(ex));       line.setAttribute("y2", String(ey));
+      line.setAttribute("stroke",         color);
+      line.setAttribute("stroke-width",   "1.5");
+      line.setAttribute("stroke-opacity", String(opacity));
+      line.setAttribute("marker-end",     `url(#${arrowId})`);
       svg.appendChild(line);
 
+      // Edge confidence label with background pill
       if (link.confidence != null) {
+        const mx = (src.x + tgt.x) / 2;
+        const my = (src.y + tgt.y) / 2;
+        const labelStr = `${(link.confidence * 100).toFixed(0)}%`;
+
+        // Pill background rect
+        const pillW = labelStr.length * 6 + 12;
+        const pillH = 16;
+        const pill = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+        pill.setAttribute("x",      String(mx - pillW / 2));
+        pill.setAttribute("y",      String(my - pillH / 2 - 2));
+        pill.setAttribute("width",  String(pillW));
+        pill.setAttribute("height", String(pillH));
+        pill.setAttribute("rx",     "4");
+        pill.setAttribute("fill",   C.surface);
+        pill.setAttribute("stroke", C.border);
+        pill.setAttribute("stroke-width", "1");
+        svg.appendChild(pill);
+
         const mid = document.createElementNS("http://www.w3.org/2000/svg", "text");
-        mid.setAttribute("x", String((src.x + tgt.x) / 2));
-        mid.setAttribute("y", String((src.y + tgt.y) / 2 - 8));
-        mid.setAttribute("text-anchor", "middle");
-        mid.setAttribute("fill", "var(--neu-text-faint)");
-        mid.setAttribute("font-size", "10");
-        mid.setAttribute("font-weight", "bold");
-        mid.setAttribute("font-family", "'JetBrains Mono', monospace");
-        mid.textContent = `${(link.confidence * 100).toFixed(0)}%`;
+        mid.setAttribute("x", String(mx));
+        mid.setAttribute("y", String(my + 5));
+        mid.setAttribute("text-anchor",  "middle");
+        mid.setAttribute("fill",         C.muted);
+        mid.setAttribute("font-size",    "10");
+        mid.setAttribute("font-weight",  "400");
+        mid.setAttribute("font-family",  FONT_MONO);
+        mid.textContent = labelStr;
         svg.appendChild(mid);
       }
     });
 
-    // Node colors per type
-    const nodeColor = {
-      original:  primaryColor,
-      recipient: infoColor,
-      violation: dangerColor,
-    };
-    const nodeRadius = {
-      original:  24,
-      recipient: 16,
-      violation: 16,
-    };
-
-    positioned.forEach((n) => {
+    // ── Nodes ─────────────────────────────────────────────────────────────────
+    positioned.forEach(n => {
       const g = document.createElementNS("http://www.w3.org/2000/svg", "g");
-      g.style.cursor = "pointer";
+      g.style.cursor = n.type === "original" ? "default" : "pointer";
 
-      // Neumorphic raised drop shadow for SVG elements
-      const filterId = `shadow-${n.id}`;
-      const filter = document.createElementNS("http://www.w3.org/2000/svg", "filter");
-      filter.setAttribute("id", filterId);
-      filter.innerHTML = `
-        <feDropShadow dx="3" dy="3" stdDeviation="4" flood-color="#b8b5b2" flood-opacity="0.8" />
-        <feDropShadow dx="-3" dy="-3" stdDeviation="4" flood-color="#ffffff" flood-opacity="0.9" />
-      `;
-      defs.appendChild(filter);
+      const r    = nodeDiameter[n.type] / 2;
+      const ring = nodeRing[n.type];
 
-      const circle = document.createElementNS("http://www.w3.org/2000/svg", "circle");
-      circle.setAttribute("cx", String(n.x));
-      circle.setAttribute("cy", String(n.y));
-      circle.setAttribute("r", String(nodeRadius[n.type]));
-      circle.setAttribute("fill", nodeColor[n.type]);
-      circle.setAttribute("stroke", "var(--neu-surface)");
-      circle.setAttribute("stroke-width", "3");
-      circle.setAttribute("filter", `url(#${filterId})`);
-      g.appendChild(circle);
+      // Outer glow for root node
+      if (n.type === "original") {
+        const glow = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+        glow.setAttribute("cx", String(n.x)); glow.setAttribute("cy", String(n.y));
+        glow.setAttribute("r",  String(r + 6));
+        glow.setAttribute("fill", "none");
+        glow.setAttribute("stroke", C.body);
+        glow.setAttribute("stroke-width", "1");
+        glow.setAttribute("stroke-opacity", "0.15");
+        g.appendChild(glow);
+      }
 
-      const label = document.createElementNS("http://www.w3.org/2000/svg", "text");
-      label.setAttribute("x", String(n.x));
-      label.setAttribute("y", String(n.y + nodeRadius[n.type] + 16));
-      label.setAttribute("text-anchor", "middle");
-      label.setAttribute("fill", "var(--neu-text)");
-      label.setAttribute("font-size", "11");
-      label.setAttribute("font-weight", "bold");
-      label.setAttribute("font-family", "'Space Mono', monospace");
-      // Add subtle text shadow to make label pop over lines
-      label.setAttribute("style", "text-shadow: 0 1px 2px var(--neu-surface), 0 -1px 2px var(--neu-surface);");
-      const labelStr = n.platform ?? n.label;
-      label.textContent = labelStr.length > 14 ? `${labelStr.slice(0, 14)}…` : labelStr;
-      g.appendChild(label);
+      // Dark fill circle
+      const fillCircle = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+      fillCircle.setAttribute("cx",           String(n.x));
+      fillCircle.setAttribute("cy",           String(n.y));
+      fillCircle.setAttribute("r",            String(r));
+      fillCircle.setAttribute("fill",         C.surface);
+      fillCircle.setAttribute("stroke",       ring);
+      fillCircle.setAttribute("stroke-width", n.type === "original" ? "3" : "2.5");
+      if (n.type === "original") {
+        fillCircle.setAttribute("filter", "url(#glow-root)");
+      }
+      g.appendChild(fillCircle);
 
-      g.addEventListener("mouseenter", (e) =>
-        setTooltip({ x: (e as MouseEvent).clientX, y: (e as MouseEvent).clientY, node: n })
-      );
-      g.addEventListener("mouseleave", () => setTooltip(null));
+      // Initial letter inside circle
+      const labelStr = n.platform ?? n.label ?? "?";
+      const initial  = labelStr.charAt(0).toUpperCase();
+      const initText = document.createElementNS("http://www.w3.org/2000/svg", "text");
+      initText.setAttribute("x",           String(n.x));
+      initText.setAttribute("y",           String(n.y + 5));
+      initText.setAttribute("text-anchor", "middle");
+      initText.setAttribute("fill",        ring);
+      initText.setAttribute("font-size",   n.type === "original" ? "16" : "13");
+      initText.setAttribute("font-weight", "500");
+      initText.setAttribute("font-family", FONT_UI);
+      initText.textContent = initial;
+      g.appendChild(initText);
+
+      // Node label below circle
+      const belowY = n.y + r + 14;
+      const dispStr = labelStr.length > 12 ? `${labelStr.slice(0, 12)}…` : labelStr;
+      const lbl = document.createElementNS("http://www.w3.org/2000/svg", "text");
+      lbl.setAttribute("x",           String(n.x));
+      lbl.setAttribute("y",           String(belowY));
+      lbl.setAttribute("text-anchor", "middle");
+      lbl.setAttribute("fill",        C.secondary);
+      lbl.setAttribute("font-size",   "11");
+      lbl.setAttribute("font-weight", "400");
+      lbl.setAttribute("font-family", FONT_UI);
+      g.appendChild(lbl);
+      lbl.textContent = dispStr;
+
+      // Events (skip tooltip for root)
+      if (n.type !== "original") {
+        g.addEventListener("mouseenter", e =>
+          setTooltip({ x: (e as MouseEvent).clientX, y: (e as MouseEvent).clientY, node: n })
+        );
+        g.addEventListener("mousemove", e =>
+          setTooltip(prev => prev ? { ...prev, x: (e as MouseEvent).clientX, y: (e as MouseEvent).clientY } : null)
+        );
+        g.addEventListener("mouseleave", () => setTooltip(null));
+      }
+
       svg.appendChild(g);
     });
   }, [graphData]);
 
   useEffect(() => {
-    // slight delay to allow CSS vars to paint
     setTimeout(renderGraph, 50);
     window.addEventListener("resize", renderGraph);
     return () => window.removeEventListener("resize", renderGraph);
   }, [renderGraph]);
 
   return (
-    <>
-      <div className="neu-inset rounded-[20px] overflow-hidden relative border-2 border-[var(--neu-surface-dk)]" style={{ minHeight: 560 }}>
-        <svg ref={svgRef} width="100%" height="560" className="opacity-90" />
-        <GraphLegend />
-      </div>
+    <div
+      ref={wrapRef}
+      style={{
+        position: "relative",
+        background: C.bg,
+        border: `1px solid ${C.border}`,
+        borderRadius: 8,
+        overflow: "hidden",
+        minHeight: 580,
+      }}
+    >
+      <svg ref={svgRef} width="100%" height="580" />
+      <GraphLegend />
       {tooltip && <NodeTooltip node={tooltip.node} x={tooltip.x} y={tooltip.y} />}
-    </>
+    </div>
   );
 }
 
-// ─── Graph [id] Page ───────────────────────────────────────────────────────────
+// ─── Inline Metric Card ───────────────────────────────────────────────────────
+const accentMap: Record<string, string> = {
+  blue:  C.accent,
+  purple: C.purple,
+  red:   C.danger,
+  amber: C.warning,
+};
+
+function MetricPanel({
+  label,
+  value,
+  accent,
+}: {
+  label: string;
+  value: React.ReactNode;
+  accent: string;
+}) {
+  return (
+    <div
+      style={{
+        flex: 1,
+        background: C.surface,
+        border: `1px solid ${C.border}`,
+        borderLeft: `3px solid ${accentMap[accent] ?? C.accent}`,
+        borderRadius: 8,
+        padding: "20px 24px",
+      }}
+    >
+      <p style={{ fontSize: 11, fontWeight: 500, fontFamily: FONT_UI, letterSpacing: "0.08em", textTransform: "uppercase", color: C.muted, lineHeight: 1, marginBottom: 12 }}>
+        {label}
+      </p>
+      <p style={{ fontSize: 32, fontWeight: 300, fontFamily: FONT_MONO, color: C.body, lineHeight: 1, letterSpacing: "-0.02em" }}>
+        {value}
+      </p>
+    </div>
+  );
+}
+
+// ─── Horizontal Spread Timeline ───────────────────────────────────────────────
+function SpreadTimeline({ nodes }: { nodes: (GraphNode & { created_at: string })[] }) {
+  const sorted = [...nodes].sort(
+    (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
+  );
+  if (sorted.length === 0) return null;
+
+  const dotClr = { original: C.body, recipient: C.warning, violation: C.danger } as const;
+
+  return (
+    <div
+      style={{
+        background: C.surface,
+        border: `1px solid ${C.border}`,
+        borderRadius: 8,
+        padding: "20px 24px",
+      }}
+    >
+      {/* Title */}
+      <p style={{ fontSize: 11, fontWeight: 500, fontFamily: FONT_UI, letterSpacing: "0.08em", textTransform: "uppercase", color: C.muted, marginBottom: 24, lineHeight: 1 }}>
+        Spread Timeline
+      </p>
+
+      <div style={{ overflowX: "auto", paddingBottom: 4 }}>
+        <div style={{ position: "relative", minWidth: sorted.length * 140 }}>
+          {/* Horizontal connector line */}
+          <div
+            style={{
+              position: "absolute",
+              top: 44,           // vertically centred on the dots
+              left: "5%",
+              right: "5%",
+              height: 1,
+              background: C.border,
+            }}
+          />
+
+          {/* Events */}
+          <div style={{ display: "flex", justifyContent: "space-around", alignItems: "flex-start" }}>
+            {sorted.map((n, i) => {
+              const color = dotClr[n.type as keyof typeof dotClr] ?? C.muted;
+              const lbl   = (n.platform ?? n.label ?? "").slice(0, 14) || n.type;
+              return (
+                <div key={i} style={{ display: "flex", flexDirection: "column", alignItems: "center", flexShrink: 0, width: 120 }}>
+                  {/* Label above dot */}
+                  <p style={{ fontSize: 12, fontWeight: 400, fontFamily: FONT_UI, color: C.body, marginBottom: 8, textAlign: "center", lineHeight: 1.4, whiteSpace: "nowrap" }}>
+                    {lbl}
+                  </p>
+
+                  {/* Dot on the line */}
+                  <div
+                    style={{
+                      width: 10,
+                      height: 10,
+                      borderRadius: "50%",
+                      background: color,
+                      boxShadow: `0 0 8px ${color}`,
+                      flexShrink: 0,
+                      zIndex: 1,
+                    }}
+                  />
+
+                  {/* Timestamp below dot */}
+                  <p style={{ fontSize: 11, fontFamily: FONT_MONO, color: C.muted, marginTop: 8, textAlign: "center", whiteSpace: "nowrap" }}>
+                    {new Date(n.created_at).toLocaleDateString()}
+                  </p>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Ghost button ─────────────────────────────────────────────────────────────
+function GhostBtn({ children }: { children: React.ReactNode }) {
+  const [hov, setHov] = useState(false);
+  return (
+    <button
+      onMouseEnter={() => setHov(true)}
+      onMouseLeave={() => setHov(false)}
+      style={{
+        height: 34,
+        padding: "0 14px",
+        fontSize: 14,
+        fontWeight: 400,
+        fontFamily: FONT_UI,
+        borderRadius: 6,
+        border: `1px solid ${hov ? C.accent : C.border}`,
+        background: "transparent",
+        color: hov ? C.accent : C.secondary,
+        cursor: "pointer",
+        display: "inline-flex",
+        alignItems: "center",
+        gap: 6,
+        transition: "all 150ms ease",
+        flexShrink: 0,
+        outline: "none",
+      }}
+    >
+      {children}
+    </button>
+  );
+}
+
+// ─── Chip pill ────────────────────────────────────────────────────────────────
+function Chip({ children }: { children: React.ReactNode }) {
+  return (
+    <span
+      style={{
+        fontSize: 11,
+        fontFamily: FONT_MONO,
+        fontWeight: 400,
+        padding: "2px 10px",
+        borderRadius: 20,
+        background: "rgba(255,255,255,0.05)",
+        border: `1px solid ${C.border}`,
+        color: C.secondary,
+        whiteSpace: "nowrap",
+      }}
+    >
+      {children}
+    </span>
+  );
+}
+
+// ─── Graph [id] Page ──────────────────────────────────────────────────────────
 export default function GraphDetailPage() {
-  const params = useParams();
+  // ── DATA FETCHING (PRESERVED EXACTLY) ──────────────────────────────────────
+  const params  = useParams();
   const assetId = params.id as string;
   const [graphData, setGraphData] = useState<GraphData | null>(null);
-  const [asset, setAsset] = useState<Asset | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [asset,     setAsset]     = useState<Asset     | null>(null);
+  const [loading,   setLoading]   = useState(true);
 
   useEffect(() => {
     if (!assetId) return;
@@ -256,112 +678,164 @@ export default function GraphDetailPage() {
       .finally(() => setLoading(false));
   }, [assetId]);
 
-  const nodes       = graphData?.nodes ?? [];
-  const links       = graphData?.links ?? [];
-  const totalNodes  = nodes.length;
-  const platforms   = new Set(nodes.map((n) => n.platform).filter(Boolean)).size;
-  const violNodes   = nodes.filter((n) => n.type === "violation").length;
-  const earliest    = nodes
-    .filter((n) => n.created_at)
-    .map((n) => new Date(n.created_at!).getTime())
+  // ── DERIVED (PRESERVED EXACTLY) ────────────────────────────────────────────
+  const nodes      = graphData?.nodes ?? [];
+  const links      = graphData?.links ?? [];
+  const totalNodes = nodes.length;
+  const platforms  = new Set(nodes.map(n => n.platform).filter(Boolean)).size;
+  const violNodes  = nodes.filter(n => n.type === "violation").length;
+  const earliest   = nodes
+    .filter(n => n.created_at)
+    .map(n => new Date(n.created_at!).getTime())
     .sort((a, b) => a - b)[0];
 
+  const timelineNodes = nodes.filter(n => n.created_at) as (GraphNode & { created_at: string })[];
+
+  // ── LOADING STATE ───────────────────────────────────────────────────────────
   if (loading) {
     return (
-      <>
-        <PageHeader title="Propagation graph" backHref="/graph" backLabel="Back to Graphs" />
-        <div className="flex-1 px-8 py-8 max-w-[1200px] mx-auto w-full space-y-6">
-          <Skeleton className="w-full rounded-[20px] neu-inset" style={{ height: 560 }} />
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-6">
-            {Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} className="h-[120px] rounded-xl neu-raised" />)}
+      <div style={{ background: C.bg, minHeight: "100vh" }}>
+        <PageTop asset={null} totalNodes={0} violNodes={0} linksCount={0} />
+        <div style={{ padding: "24px 24px", display: "flex", flexDirection: "column", gap: 24 }}>
+          <Skeleton className="rounded" style={{ height: 580, width: "100%" }} />
+          <div style={{ display: "flex", gap: 16 }}>
+            {[0,1,2,3].map(i => <Skeleton key={i} className="rounded" style={{ height: 96, flex: 1 }} />)}
           </div>
         </div>
-      </>
+      </div>
     );
   }
 
+  // ── EMPTY STATE ─────────────────────────────────────────────────────────────
   if (!graphData || graphData.nodes.length === 0) {
     return (
-      <>
-        <PageHeader title={asset?.name ?? "Graph"} backHref="/graph" backLabel="Back to Graphs" />
-        <div className="flex-1 px-8 py-20 text-center max-w-[800px] mx-auto neu-inset rounded-[20px] mt-8">
-          <div className="w-14 h-14 neu-raised rounded-xl flex items-center justify-center mx-auto mb-5 text-[var(--neu-text-faint)]">
-            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <circle cx="5" cy="12" r="2"/><circle cx="19" cy="5" r="2"/><circle cx="19" cy="19" r="2"/>
+      <div style={{ background: C.bg, minHeight: "100vh" }}>
+        <PageTop asset={asset} totalNodes={0} violNodes={0} linksCount={0} />
+        <div style={{ padding: "40px 24px", maxWidth: 560, margin: "0 auto" }}>
+          <div
+            style={{
+              background: C.surface,
+              border: `1px solid ${C.border}`,
+              borderRadius: 8,
+              padding: "48px 32px",
+              textAlign: "center",
+            }}
+          >
+            <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke={C.muted} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" style={{ margin: "0 auto 16px" }}>
+              <circle cx="5"  cy="12" r="2"/><circle cx="19" cy="5"  r="2"/><circle cx="19" cy="19" r="2"/>
               <line x1="7" y1="12" x2="17" y2="6"/><line x1="7" y1="12" x2="17" y2="18"/>
             </svg>
+            <p style={{ fontSize: 16, fontWeight: 500, color: C.body, fontFamily: FONT_UI, marginBottom: 8 }}>
+              No propagation data
+            </p>
+            <p style={{ fontSize: 14, color: C.muted, fontFamily: FONT_UI, lineHeight: 1.6, marginBottom: 20 }}>
+              Run scans to generate propagation data for this asset.
+            </p>
+            <Link href="/scan">
+              <button style={{ height: 36, padding: "0 20px", fontSize: 13, fontWeight: 500, fontFamily: FONT_UI, borderRadius: 6, border: "none", background: C.accent, color: "#fff", cursor: "pointer" }}>
+                Scan now
+              </button>
+            </Link>
           </div>
-          <p className="text-[16px] font-bold text-[var(--neu-text)] uppercase tracking-wide">No graph data available</p>
-          <p className="text-[13px] font-sans text-[var(--neu-text-muted)] mt-2">Run scans to generate propagation data for this asset</p>
         </div>
-      </>
+      </div>
     );
   }
 
+  // ── MAIN CONTENT ────────────────────────────────────────────────────────────
   return (
-    <>
-      <PageHeader
-        title={asset?.name ?? "PROPAGATION GRAPH"}
-        subtitle={`${totalNodes} nodes · ${violNodes} violations · ${links.length} propagation links`}
-        backHref="/graph"
-        backLabel="Back to graphs"
-        action={
-          <Button variant="secondary">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>
-            </svg>
-            Export Graph
-          </Button>
-        }
-      />
+    <div style={{ background: C.bg, minHeight: "100vh" }}>
+      <PageTop asset={asset} totalNodes={totalNodes} violNodes={violNodes} linksCount={links.length} />
 
-      <div className="flex-1 px-8 py-8 max-w-[1200px] mx-auto w-full space-y-6">
+      {/* 1px divider */}
+      <div style={{ height: 1, background: C.border }} />
+
+      <div style={{ padding: "24px", display: "flex", flexDirection: "column", gap: 24 }}>
+        {/* Graph canvas */}
         <GraphCanvas graphData={graphData} />
 
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-6">
-          <MetricCard label="Total Nodes"      value={totalNodes} accentColor="blue" />
-          <MetricCard label="Platforms Reached" value={platforms}  accentColor="green" />
-          <MetricCard label="Violation Nodes"   value={violNodes}  accentColor="red" />
-          <MetricCard
+        {/* Metric row */}
+        <div style={{ display: "flex", gap: 16 }}>
+          <MetricPanel label="Total Nodes"       value={totalNodes} accent="blue"   />
+          <MetricPanel label="Platforms Reached"  value={platforms}  accent="purple" />
+          <MetricPanel label="Violation Nodes"    value={violNodes}  accent="red"    />
+          <MetricPanel
             label="Earliest Spread"
             value={earliest ? new Date(earliest).toLocaleDateString() : "—"}
-            accentColor="amber"
+            accent="amber"
           />
         </div>
 
-        {nodes.filter((n) => n.created_at).length > 0 && (
-          <div className="neu-raised p-6">
-            <h2 className="text-[16px] font-bold text-[var(--neu-text)] mb-5 uppercase tracking-wide">Spread timeline</h2>
-            <div className="overflow-x-auto pb-2">
-              <div className="flex gap-4" style={{ minWidth: "max-content" }}>
-                {nodes
-                  .filter((n) => n.created_at)
-                  .sort((a, b) => new Date(a.created_at!).getTime() - new Date(b.created_at!).getTime())
-                  .map((n, i) => {
-                    const typeVariant = {
-                      original:  "info" as const,
-                      recipient: "pending" as const,
-                      violation: "violation" as const,
-                    };
-                    return (
-                      <div key={i} className="neu-inset-sm px-4 py-4 rounded-[12px] shrink-0 min-w-[160px] flex flex-col justify-between">
-                        <div>
-                          <p className="text-[10px] font-mono font-bold text-[var(--neu-text-faint)] mb-2">{new Date(n.created_at!).toLocaleDateString()}</p>
-                          <p className="text-[13px] font-bold text-[var(--neu-text)] truncate" title={n.platform ?? n.label}>
-                            {n.platform ?? n.label}
-                          </p>
-                        </div>
-                        <div className="mt-4">
-                          <Badge variant={typeVariant[n.type]}>{n.type}</Badge>
-                        </div>
-                      </div>
-                    );
-                  })}
-              </div>
-            </div>
-          </div>
-        )}
+        {/* Horizontal spread timeline */}
+        {timelineNodes.length > 0 && <SpreadTimeline nodes={timelineNodes} />}
       </div>
-    </>
+    </div>
+  );
+}
+
+// ─── Page header (isolated component for cleanliness) ────────────────────────
+function PageTop({
+  asset,
+  totalNodes,
+  violNodes,
+  linksCount,
+}: {
+  asset: Asset | null;
+  totalNodes: number;
+  violNodes: number;
+  linksCount: number;
+}) {
+  return (
+    <div
+      style={{
+        padding: "20px 24px",
+        background: C.bg,
+        display: "flex",
+        alignItems: "flex-end",
+        justifyContent: "space-between",
+        gap: 16,
+      }}
+    >
+      <div style={{ minWidth: 0 }}>
+        {/* Back link */}
+        <Link
+          href="/graph"
+          style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12, color: C.muted, textDecoration: "none", marginBottom: 10 }}
+        >
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/>
+          </svg>
+          Propagation
+        </Link>
+
+        {/* Title + chips */}
+        <div style={{ display: "flex", alignItems: "baseline", flexWrap: "wrap", gap: 12 }}>
+          <h1 style={{ fontSize: 24, fontWeight: 600, color: C.body, fontFamily: FONT_UI, letterSpacing: "-0.01em", lineHeight: 1.1, margin: 0 }}>
+            {asset?.name ?? "Propagation Graph"}
+          </h1>
+          {totalNodes > 0 && (
+            <>
+              <Chip>{totalNodes} nodes</Chip>
+              <Chip>{violNodes} violations</Chip>
+              <Chip>{linksCount} links</Chip>
+            </>
+          )}
+        </div>
+
+        <p style={{ fontSize: 14, fontWeight: 300, color: C.muted, fontFamily: FONT_UI, marginTop: 6, lineHeight: 1.5 }}>
+          Visual propagation map of asset distribution and violation spread
+        </p>
+      </div>
+
+      {/* Export (ghost — not primary CTA) */}
+      <GhostBtn>
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+          <polyline points="7 10 12 15 17 10"/>
+          <line x1="12" y1="15" x2="12" y2="3"/>
+        </svg>
+        Export
+      </GhostBtn>
+    </div>
   );
 }

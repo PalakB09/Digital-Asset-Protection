@@ -14,14 +14,20 @@ import Link from "next/link";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { SkeletonAssetCard } from "@/components/ui/Skeleton";
-import { PageHeader } from "@/components/ui/PageHeader";
 
-// ─── Register Drawer ────────────────────────────────────────────────────────
-function RegisterSection({
-  onAssetRegistered,
-}: {
-  onAssetRegistered: () => void;
-}) {
+// ─── Icons ────────────────────────────────────────────────────────────────────
+function UploadIcon() {
+  return (
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+      <polyline points="17 8 12 3 7 8"/>
+      <line x1="12" y1="3" x2="12" y2="15"/>
+    </svg>
+  );
+}
+
+// ─── Register Section ─────────────────────────────────────────────────────────
+function RegisterSection({ onAssetRegistered }: { onAssetRegistered: () => void }) {
   const [description, setDescription] = useState("");
   const [assetUrl, setAssetUrl] = useState("");
   const [urlMediaType, setUrlMediaType] = useState<"auto" | "image" | "video">("auto");
@@ -38,12 +44,12 @@ function RegisterSection({
     const isVideo = file.type.startsWith("video/");
     const isImage = file.type.startsWith("image/");
     if (!isImage && !isVideo) {
-      setMessage({ type: "error", text: "Please upload an image or video file." });
+      setMessage({ type: "error", text: "Upload an image or video file." });
       return;
     }
     const desc = description.trim();
     if (!desc) {
-      setMessage({ type: "error", text: "Add an asset description first — it's required to generate discovery keywords." });
+      setMessage({ type: "error", text: "Add an asset description — it's required to generate discovery keywords." });
       return;
     }
     setUploading(true);
@@ -59,8 +65,8 @@ function RegisterSection({
       });
       setDescription("");
       onAssetRegistered();
-    } catch (err) {
-      setMessage({ type: "error", text: "We couldn't register this asset. Try again." });
+    } catch {
+      setMessage({ type: "error", text: "Registration failed. Try again." });
     } finally {
       setUploading(false);
     }
@@ -84,153 +90,185 @@ function RegisterSection({
       setAssetUrl("");
       setDescription("");
       onAssetRegistered();
-    } catch (err) {
-      setMessage({ type: "error", text: "We couldn't register this URL. Check that it points to an accessible image or video." });
+    } catch {
+      setMessage({ type: "error", text: "Could not register this URL. Check that it points to an accessible image or video." });
     } finally {
       setUploading(false);
     }
   }
 
   return (
-    <div className="neu-raised p-6 space-y-6">
-      <h2 className="text-[16px] font-bold text-[var(--neu-text)] uppercase tracking-wide">Register new asset</h2>
+    <div
+      id="register-section"
+      style={{
+        background: "var(--surface)",
+        border: "1px solid var(--border-subtle)",
+        borderRadius: 12,
+        padding: 24,
+      }}
+    >
+      <p className="text-[13px] font-medium mb-5" style={{ color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: "0.06em" }}>
+        Register asset
+      </p>
 
-      {/* Description field */}
-      <div>
-        <label htmlFor="asset-desc" className="block text-[11px] font-bold uppercase tracking-widest text-[var(--neu-text-muted)] mb-1">
-          Asset description <span className="text-[var(--neu-text-faint)] font-bold">(required)</span>
-        </label>
-        <p className="text-[11px] font-sans text-[var(--neu-text-faint)] mb-3 leading-relaxed">
-          Describe what this asset is. Used to generate discovery search keywords — not analyzed by AI vision.
-        </p>
-        <textarea
-          id="asset-desc"
-          value={description}
-          onChange={(e) => setDescription(e.target.value)}
-          placeholder="e.g. Official IPL 2026 promo for Chennai; leaked clip from Show Name episode 3"
-          rows={2}
-          className="neu-input resize-y min-h-[70px]"
-        />
-      </div>
-
-      {/* Upload zone */}
-      <div>
-        <p className="text-[11px] font-bold uppercase tracking-widest text-[var(--neu-text-muted)] mb-2">Upload file</p>
-        <input
-          ref={fileRef}
-          type="file"
-          accept="image/*,video/mp4,video/mpeg,video/quicktime,video/webm,video/x-msvideo"
-          className="sr-only"
-          onChange={(e) => {
-            const f = e.target.files?.[0];
-            if (f) handleUpload(f);
-            e.target.value = "";
-          }}
-        />
-        <div
-          onClick={() => !uploading && fileRef.current?.click()}
-          onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
-          onDragLeave={() => setDragOver(false)}
-          onDrop={(e) => {
-            e.preventDefault();
-            setDragOver(false);
-            const f = e.dataTransfer.files[0];
-            if (f) handleUpload(f);
-          }}
-          className={`
-            neu-inset rounded-xl p-8 text-center cursor-pointer
-            transition-all duration-200 border-2
-            ${dragOver
-              ? "border-[var(--neu-primary-lt)] ring-inset ring-2 ring-[var(--neu-primary-lt)]"
-              : "border-transparent hover:shadow-[var(--neu-inset-sm)]"
-            }
-            ${uploading ? "cursor-wait opacity-70" : ""}
-          `}
-        >
-          {uploading ? (
-            <div className="flex flex-col items-center gap-3">
-              <div className="flex gap-[3px]">
-                {[0, 1, 2].map((i) => (
-                  <span key={i} className="w-1.5 h-1.5 rounded-full bg-[var(--neu-primary)] animate-pulse" style={{ animationDelay: `${i * 150}ms` }} />
-                ))}
-              </div>
-              <p className="text-[12px] font-bold text-[var(--neu-text-muted)] uppercase tracking-wide">Processing — extracting fingerprints and keywords…</p>
-            </div>
-          ) : (
-            <div className="flex flex-col items-center gap-3">
-              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-[var(--neu-text-faint)]">
-                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/>
-              </svg>
-              <p className="text-[14px] font-bold text-[var(--neu-text)]">Drop a file or click to upload</p>
-              <p className="text-[12px] font-mono text-[var(--neu-text-faint)]">JPG, PNG, WebP, MP4, MOV, WebM · Max 200 MB</p>
-            </div>
-          )}
+      <div className="space-y-5">
+        {/* Description */}
+        <div>
+          <label htmlFor="asset-desc" className="eg-label">
+            Description <span style={{ color: "var(--text-muted)", textTransform: "none", letterSpacing: 0 }}>(required)</span>
+          </label>
+          <p className="text-[12px] mb-2" style={{ color: "var(--text-muted)" }}>
+            Describe the asset. Used to generate discovery keywords — not analyzed by AI vision.
+          </p>
+          <textarea
+            id="asset-desc"
+            value={description}
+            onChange={(e) => setDescription(e.target.value)}
+            placeholder="e.g. Official IPL 2026 promo for Chennai; leaked clip from Show Name episode 3"
+            rows={2}
+            className="eg-textarea"
+            style={{ minHeight: 72 }}
+          />
         </div>
-      </div>
 
-      {/* Register from URL */}
-      <div>
-        <p className="text-[11px] font-bold uppercase tracking-widest text-[var(--neu-text-muted)] mb-2">Or register from URL</p>
-        <div className="flex gap-3">
-          <div className="flex-1 relative">
+        {/* Upload dropzone */}
+        <div>
+          <p className="eg-label mb-2">Upload file</p>
+          <input
+            ref={fileRef}
+            type="file"
+            accept="image/*,video/mp4,video/mpeg,video/quicktime,video/webm,video/x-msvideo"
+            className="sr-only"
+            onChange={(e) => {
+              const f = e.target.files?.[0];
+              if (f) handleUpload(f);
+              e.target.value = "";
+            }}
+          />
+          <div
+            onClick={() => !uploading && fileRef.current?.click()}
+            onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
+            onDragLeave={() => setDragOver(false)}
+            onDrop={(e) => {
+              e.preventDefault();
+              setDragOver(false);
+              const f = e.dataTransfer.files[0];
+              if (f) handleUpload(f);
+            }}
+            className="text-center cursor-pointer transition-all"
+            style={{
+              border: `1px dashed ${dragOver ? "var(--accent-primary)" : "var(--border-default)"}`,
+              borderRadius: 10,
+              padding: "28px 24px",
+              background: dragOver ? "var(--accent-soft)" : "var(--bg-secondary)",
+              boxShadow: dragOver ? "0 0 0 3px rgba(142,197,255,0.12)" : "none",
+              opacity: uploading ? 0.6 : 1,
+              cursor: uploading ? "wait" : "pointer",
+            }}
+          >
+            {uploading ? (
+              <div className="flex flex-col items-center gap-2">
+                <div className="flex gap-1">
+                  {[0, 1, 2].map((i) => (
+                    <span
+                      key={i}
+                      className="rounded-full animate-pulse"
+                      style={{ width: 6, height: 6, background: "var(--accent-primary)", animationDelay: `${i * 150}ms` }}
+                    />
+                  ))}
+                </div>
+                <p className="text-[12px]" style={{ color: "var(--text-muted)" }}>
+                  Processing — extracting fingerprints and keywords…
+                </p>
+              </div>
+            ) : (
+              <div className="flex flex-col items-center gap-2">
+                <div style={{ color: "var(--text-muted)" }}>
+                  <UploadIcon />
+                </div>
+                <p className="text-[14px] font-medium" style={{ color: "var(--text-primary)" }}>
+                  Drop a file or click to upload
+                </p>
+                <p className="text-[12px] font-mono" style={{ color: "var(--text-muted)" }}>
+                  JPG, PNG, WebP, MP4, MOV, WebM · Max 200 MB
+                </p>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* URL register */}
+        <div>
+          <p className="eg-label mb-2">Or register from URL</p>
+          <div className="flex gap-2">
             <input
               type="url"
               value={assetUrl}
               onChange={(e) => setAssetUrl(e.target.value)}
               placeholder="https://..."
-              className="neu-input"
+              className="eg-input flex-1"
+              style={{ flexShrink: 1, minWidth: 0 }}
             />
-          </div>
-          <div className="relative">
-            <select
-              value={urlMediaType}
-              onChange={(e) => setUrlMediaType(e.target.value as "auto" | "image" | "video")}
-              className="neu-input pr-8 appearance-none"
-            >
-              <option value="auto">Auto</option>
-              <option value="image">Image</option>
-              <option value="video">Video</option>
-            </select>
-            <div className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-[var(--neu-text-faint)]">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <polyline points="6 9 12 15 18 9" />
-              </svg>
-            </div>
-          </div>
-          <Button
-            variant="secondary"
-            onClick={handleUrlRegister}
-            disabled={uploading || !assetUrl.trim() || !description.trim()}
-            loading={uploading}
-          >
-            Register
-          </Button>
-        </div>
-      </div>
-
-      {/* Message */}
-      {message && (
-        <div className={`p-4 neu-inset-sm rounded-lg border-l-4 ${message.type === "success" ? "border-[var(--neu-success)]" : "border-[var(--neu-danger)]"}`}>
-          <p className="text-[13px] font-bold">{message.text}</p>
-          {message.type === "success" && message.keywords && message.keywords.length > 0 && (
-            <div className="mt-3">
-              <p className="text-[10px] font-bold uppercase tracking-widest text-[var(--neu-text-faint)] mb-2">Discovery keywords</p>
-              <div className="flex flex-wrap gap-2">
-                {message.keywords.map((k, idx) => (
-                  <span key={idx} className="text-[11px] font-mono neu-inset px-2 py-0.5 rounded-[6px] text-[var(--neu-primary)]">
-                    {k}
-                  </span>
-                ))}
+            <div className="relative shrink-0">
+              <select
+                value={urlMediaType}
+                onChange={(e) => setUrlMediaType(e.target.value as "auto" | "image" | "video")}
+                className="eg-select"
+              >
+                <option value="auto">Auto</option>
+                <option value="image">Image</option>
+                <option value="video">Video</option>
+              </select>
+              <div className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none" style={{ color: "var(--text-muted)" }}>
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <polyline points="6 9 12 15 18 9" />
+                </svg>
               </div>
             </div>
-          )}
+            <Button
+              variant="secondary"
+              onClick={handleUrlRegister}
+              disabled={uploading || !assetUrl.trim() || !description.trim()}
+              loading={uploading}
+              className="shrink-0"
+            >
+              {!uploading && "Register"}
+            </Button>
+          </div>
         </div>
-      )}
+
+        {/* Message */}
+        {message && (
+          <div className={message.type === "success" ? "eg-alert-success" : "eg-alert-error"}>
+            <p className="font-medium">{message.text}</p>
+            {message.type === "success" && message.keywords && message.keywords.length > 0 && (
+              <div className="mt-3">
+                <p className="text-[10px] font-medium uppercase tracking-widest mb-2 opacity-70">Discovery keywords</p>
+                <div className="flex flex-wrap gap-1.5">
+                  {message.keywords.map((k, idx) => (
+                    <span
+                      key={idx}
+                      className="text-[11px] font-mono px-2 py-0.5 rounded"
+                      style={{
+                        background: "rgba(142,197,255,0.12)",
+                        border: "1px solid rgba(142,197,255,0.2)",
+                        color: "var(--accent-primary)",
+                      }}
+                    >
+                      {k}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
     </div>
   );
 }
 
-// ─── Asset Card ──────────────────────────────────────────────────────────────
+// ─── Asset Card ───────────────────────────────────────────────────────────────
 function AssetCard({
   asset,
   onDelete,
@@ -241,14 +279,32 @@ function AssetCard({
   deleting: boolean;
 }) {
   const [hovered, setHovered] = useState(false);
+  const [overlayVisible, setOverlayVisible] = useState(false);
+
+  // Slight delay on overlay appearance for smoothness
+  useEffect(() => {
+    if (hovered) {
+      const t = setTimeout(() => setOverlayVisible(true), 30);
+      return () => clearTimeout(t);
+    } else {
+      setOverlayVisible(false);
+    }
+  }, [hovered]);
 
   return (
     <div
-      className="neu-raised overflow-hidden flex flex-col"
+      className="overflow-hidden flex flex-col eg-card-interactive"
+      style={{
+        background: "var(--surface)",
+        border: "1px solid var(--border-subtle)",
+        borderRadius: 12,
+        boxShadow: "var(--shadow-sm)",
+      }}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
     >
-      <div className="relative aspect-video overflow-hidden">
+      {/* Media preview */}
+      <div className="relative overflow-hidden" style={{ aspectRatio: "16/9" }}>
         {asset.asset_type === "video" ? (
           <video
             src={getAssetImageUrl(asset.id)}
@@ -266,90 +322,139 @@ function AssetCard({
             loading="lazy"
           />
         )}
-        
-        {/* Inner shadow overlay for depth */}
-        <div className="absolute inset-0 shadow-[inset_0_0_12px_rgba(0,0,0,0.3)] pointer-events-none" />
 
-        <div className="absolute top-3 right-3">
-          <div className="w-6 h-6 rounded-full neu-primary-pill !bg-[var(--neu-success)] flex items-center justify-center text-white" title="Verified and protected">
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
-              <polyline points="20 6 9 17 4 12" />
-            </svg>
+        {/* Verified dot */}
+        <div className="absolute top-2.5 right-2.5">
+          <div
+            className="flex items-center justify-center rounded-full"
+            style={{
+              width: 22,
+              height: 22,
+              background: asset.violation_count > 0 ? "var(--danger)" : "var(--success)",
+              boxShadow: `0 0 8px ${asset.violation_count > 0 ? "var(--danger)" : "var(--success)"}`,
+            }}
+          >
+            {asset.violation_count > 0 ? (
+              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+                <line x1="18" y1="6" x2="6" y2="18"/>
+                <line x1="6" y1="6" x2="18" y2="18"/>
+              </svg>
+            ) : (
+              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+                <polyline points="20 6 9 17 4 12" />
+              </svg>
+            )}
           </div>
         </div>
 
-        {hovered && (
-          <div className="absolute inset-0 bg-[var(--neu-surface-dk)]/90 flex items-center justify-center gap-3 transition-opacity duration-200">
-            {asset.violation_count > 0 && (
-              <Link href={`/graph/${asset.id}`} title="View propagation graph">
-                <Button variant="secondary" size="icon">
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <circle cx="5" cy="12" r="2" /><circle cx="19" cy="5" r="2" /><circle cx="19" cy="19" r="2" /><line x1="7" y1="12" x2="17" y2="6" /><line x1="7" y1="12" x2="17" y2="18" />
-                  </svg>
-                </Button>
-              </Link>
-            )}
-            <Link href={`/insights/${asset.id}`} title="View insights">
-              <Button variant="secondary" size="icon">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <line x1="18" y1="20" x2="18" y2="10" /><line x1="12" y1="20" x2="12" y2="4" /><line x1="6" y1="20" x2="6" y2="14" />
+        {/* Hover overlay */}
+        <div
+          className="absolute inset-0 flex items-center justify-center gap-2 transition-all"
+          style={{
+            background: "rgba(11,15,23,0.88)",
+            backdropFilter: "blur(4px)",
+            opacity: overlayVisible ? 1 : 0,
+            pointerEvents: overlayVisible ? "auto" : "none",
+          }}
+        >
+          {asset.violation_count > 0 && (
+            <Link href={`/graph/${asset.id}`} title="View propagation graph">
+              <button
+                className="eg-btn eg-btn-secondary eg-btn-icon"
+                aria-label="View propagation graph"
+              >
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <circle cx="5" cy="12" r="2" /><circle cx="19" cy="5" r="2" /><circle cx="19" cy="19" r="2" />
+                  <line x1="7" y1="12" x2="17" y2="6" /><line x1="7" y1="12" x2="17" y2="18" />
                 </svg>
-              </Button>
+              </button>
             </Link>
-            <Link href={`/assets/${asset.id}`} title="Manage distribution">
-              <Button variant="secondary" size="icon">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/>
-                </svg>
-              </Button>
-            </Link>
-          </div>
-        )}
+          )}
+          <Link href={`/insights/${asset.id}`} title="View insights">
+            <button className="eg-btn eg-btn-secondary eg-btn-icon" aria-label="View AI insights">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <line x1="18" y1="20" x2="18" y2="10" /><line x1="12" y1="20" x2="12" y2="4" /><line x1="6" y1="20" x2="6" y2="14" />
+              </svg>
+            </button>
+          </Link>
+          <Link href={`/assets/${asset.id}`} title="Manage asset">
+            <button className="eg-btn eg-btn-secondary eg-btn-icon" aria-label="Manage asset">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="12" cy="12" r="3"/>
+                <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+              </svg>
+            </button>
+          </Link>
+        </div>
       </div>
 
-      <div className="p-5 flex-1 flex flex-col">
-        <p className="text-[14px] font-bold text-[var(--neu-text)] truncate mb-2" title={asset.name}>
-          {asset.name}
-        </p>
+      {/* Card body */}
+      <div className="flex flex-col flex-1 p-4">
+        <Link href={`/assets/${asset.id}`} className="group">
+          <p
+            className="text-[14px] font-medium truncate mb-2 transition-colors"
+            style={{ color: "var(--text-primary)" }}
+            title={asset.name}
+          >
+            {asset.name}
+          </p>
+        </Link>
 
-        <div className="flex items-center justify-between gap-3 mb-3">
-          <div className="flex items-center gap-2">
-            <Badge variant={asset.asset_type === "video" ? "info" : "neutral"}>
-              {asset.asset_type ?? "image"}
-            </Badge>
-            {asset.violation_count > 0 && (
-              <Badge variant="violation">{asset.violation_count} violations</Badge>
-            )}
-          </div>
-          <span className="text-[11px] font-mono text-[var(--neu-text-muted)] shrink-0">
+        <div className="flex items-center gap-2 mb-3">
+          <Badge variant={asset.asset_type === "video" ? "info" : "neutral"}>
+            {asset.asset_type ?? "image"}
+          </Badge>
+          {asset.violation_count > 0 && (
+            <Badge variant="violation">{asset.violation_count} violation{asset.violation_count !== 1 ? "s" : ""}</Badge>
+          )}
+          <span
+            className="ml-auto text-[11px] font-mono shrink-0"
+            style={{ color: "var(--text-muted)" }}
+          >
             {new Date(asset.created_at).toLocaleDateString()}
           </span>
         </div>
 
         {asset.description && (
-          <p className="text-[11px] font-sans text-[var(--neu-text-muted)] line-clamp-2 leading-relaxed mb-4">
+          <p
+            className="text-[12px] leading-relaxed line-clamp-2 mb-3"
+            style={{ color: "var(--text-muted)" }}
+          >
             {asset.description}
           </p>
         )}
 
         {asset.keywords && asset.keywords.length > 0 && (
           <div className="mb-4">
-            <p className="text-[10px] font-bold uppercase tracking-widest text-[var(--neu-text-faint)] mb-2">Keywords</p>
-            <div className="flex flex-wrap gap-1.5">
+            <div className="flex flex-wrap gap-1">
               {asset.keywords.slice(0, 4).map((k, idx) => (
-                <span key={idx} className="text-[10px] neu-inset text-[var(--neu-primary)] font-mono px-2 py-0.5 rounded-[6px]">
+                <span
+                  key={idx}
+                  className="text-[10px] font-mono px-1.5 py-0.5 rounded"
+                  style={{
+                    background: "var(--accent-soft)",
+                    color: "var(--accent-primary)",
+                    border: "1px solid rgba(142,197,255,0.15)",
+                  }}
+                >
                   {k}
                 </span>
               ))}
               {asset.keywords.length > 4 && (
-                <span className="text-[10px] font-mono text-[var(--neu-text-faint)] mt-0.5">+{asset.keywords.length - 4}</span>
+                <span className="text-[10px] font-mono" style={{ color: "var(--text-muted)" }}>
+                  +{asset.keywords.length - 4}
+                </span>
               )}
             </div>
           </div>
         )}
 
-        <div className="mt-auto pt-4 flex flex-col gap-3">
-          <p className="text-[11px] font-mono font-bold text-[var(--neu-text-muted)] truncate" title={`pHash: ${asset.phash}`}>
+        <div className="mt-auto pt-3 flex flex-col gap-2.5" style={{ borderTop: "1px solid var(--border-subtle)" }}>
+          <p
+            className="text-[10px] font-mono truncate"
+            style={{ color: "var(--text-muted)" }}
+            title={`pHash: ${asset.phash}`}
+          >
             pHash: {asset.phash}
           </p>
           <Button
@@ -358,7 +463,8 @@ function AssetCard({
             className="w-full justify-center"
             disabled={deleting}
             loading={deleting}
-            onClick={() => onDelete(asset)}
+            onClick={(e) => { e.preventDefault(); onDelete(asset); }}
+            aria-label={`Delete ${asset.name}`}
           >
             {!deleting && "Delete asset"}
           </Button>
@@ -368,15 +474,42 @@ function AssetCard({
   );
 }
 
+// ─── Empty State ──────────────────────────────────────────────────────────────
+function EmptyState() {
+  return (
+    <div
+      className="flex flex-col items-center justify-center py-20 text-center"
+      style={{
+        border: "1px dashed var(--border-default)",
+        borderRadius: 12,
+        background: "var(--surface)",
+      }}
+    >
+      <div className="mb-5" style={{ color: "var(--text-muted)" }}>
+        <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" strokeLinejoin="round">
+          <rect x="3" y="3" width="18" height="18" rx="2"/>
+          <circle cx="8.5" cy="8.5" r="1.5" fill="currentColor"/>
+          <path d="m21 15-5-5L5 21"/>
+        </svg>
+      </div>
+      <p className="text-[16px] font-medium mb-1.5" style={{ color: "var(--text-primary)" }}>
+        No assets registered
+      </p>
+      <p className="text-[13px] max-w-[280px]" style={{ color: "var(--text-muted)" }}>
+        Upload your first image or video above to start protecting it with AI-powered monitoring.
+      </p>
+    </div>
+  );
+}
+
 // ─── Assets Page ──────────────────────────────────────────────────────────────
 export default function AssetsPage() {
   const [assets, setAssets] = useState<Asset[]>([]);
   const [loading, setLoading] = useState(true);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [showRegister, setShowRegister] = useState(false);
 
-  useEffect(() => {
-    loadAssets();
-  }, []);
+  useEffect(() => { loadAssets(); }, []);
 
   async function loadAssets() {
     try {
@@ -408,55 +541,121 @@ export default function AssetsPage() {
 
   return (
     <>
-      <PageHeader
-        title="ASSETS"
-        subtitle="Register and manage your protected media assets"
-        action={
-          <Button
-            variant="primary"
-            onClick={() => document.getElementById("register-section")?.scrollIntoView({ behavior: "smooth" })}
-          >
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" />
-            </svg>
-            Register asset
-          </Button>
-        }
-      />
+      {/* ── Hero Header ──────────────────────────────────────────── */}
+      <div
+        className="relative px-8 py-10 eg-hero-glow"
+        style={{
+          background: "var(--bg-secondary)",
+          borderBottom: "1px solid var(--border-subtle)",
+        }}
+      >
+        <div className="max-w-[1200px] mx-auto relative z-10">
+          <div className="flex items-end justify-between gap-6">
+            <div>
+              <p
+                className="text-[11px] font-medium uppercase tracking-[0.1em] mb-2"
+                style={{ color: "var(--accent-primary)" }}
+              >
+                MediaShield
+              </p>
+              <h1
+                className="font-semibold leading-none mb-2"
+                style={{ fontSize: 32, color: "var(--text-primary)", letterSpacing: "-0.02em" }}
+              >
+                Assets
+              </h1>
+              <p className="text-[14px]" style={{ color: "var(--text-muted)" }}>
+                Register and monitor protected media assets across platforms
+              </p>
+            </div>
+            <div className="flex items-center gap-2 shrink-0">
+              {!loading && assets.length > 0 && (
+                <span
+                  className="text-[13px] font-mono px-3 py-1 rounded-full"
+                  style={{
+                    background: "var(--accent-soft)",
+                    border: "1px solid var(--accent-border)",
+                    color: "var(--accent-primary)",
+                  }}
+                >
+                  {assets.length} asset{assets.length !== 1 ? "s" : ""}
+                </span>
+              )}
+              <button
+                className="eg-btn eg-btn-primary"
+                onClick={() => {
+                  setShowRegister((v) => !v);
+                  if (!showRegister) setTimeout(() => document.getElementById("register-section")?.scrollIntoView({ behavior: "smooth" }), 50);
+                }}
+                aria-label="Register a new asset"
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                  <line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" />
+                </svg>
+                Register asset
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
 
+      {/* ── Main content ─────────────────────────────────────────── */}
       <div className="flex-1 px-8 py-8 max-w-[1200px] mx-auto w-full">
 
-        <div id="register-section" className="mb-8">
-          <RegisterSection onAssetRegistered={loadAssets} />
+        {/* Register section — collapsible */}
+        <div
+          style={{
+            overflow: "hidden",
+            maxHeight: showRegister ? "600px" : 0,
+            opacity: showRegister ? 1 : 0,
+            transition: "max-height 300ms ease, opacity 250ms ease",
+            marginBottom: showRegister ? 32 : 0,
+          }}
+        >
+          <RegisterSection onAssetRegistered={() => { loadAssets(); }} />
         </div>
 
-        <div className="neu-divider my-8" />
-
+        {/* Section header */}
         <div className="flex items-center justify-between mb-6">
-          <h2 className="text-[18px] font-bold text-[var(--neu-text)] uppercase tracking-wide">
-            Registered assets
+          <div className="flex items-center gap-3">
+            <h2
+              className="text-[16px] font-medium"
+              style={{ color: "var(--text-primary)" }}
+            >
+              Registered assets
+            </h2>
             {!loading && (
-              <span className="ml-3 text-[14px] font-mono text-[var(--neu-text-muted)]">({assets.length})</span>
+              <span className="text-[13px] font-mono" style={{ color: "var(--text-muted)" }}>
+                {assets.length}
+              </span>
             )}
-          </h2>
+          </div>
+          {!showRegister && (
+            <button
+              className="eg-btn eg-btn-ghost eg-btn-sm"
+              onClick={() => setShowRegister(true)}
+              aria-label="Show register section"
+            >
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" />
+              </svg>
+              Add asset
+            </button>
+          )}
         </div>
 
+        {/* Divider */}
+        <div className="eg-divider mb-6" />
+
+        {/* Grid */}
         {loading ? (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
             {Array.from({ length: 6 }).map((_, i) => <SkeletonAssetCard key={i} />)}
           </div>
         ) : assets.length === 0 ? (
-          <div className="neu-inset rounded-xl p-12 text-center border-2 border-transparent">
-            <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="mx-auto mb-4 text-[var(--neu-text-faint)]">
-              <rect x="3" y="3" width="18" height="18" rx="2"/>
-              <circle cx="8.5" cy="8.5" r="1.5" fill="currentColor"/>
-              <path d="m21 15-5-5L5 21"/>
-            </svg>
-            <p className="text-[16px] font-bold text-[var(--neu-text)] mb-2 uppercase tracking-wide">No assets registered yet</p>
-            <p className="text-[13px] font-sans text-[var(--neu-text-muted)]">Upload your first image or video above to start protecting it</p>
-          </div>
+          <EmptyState />
         ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
             {assets.map((asset) => (
               <AssetCard
                 key={asset.id}
