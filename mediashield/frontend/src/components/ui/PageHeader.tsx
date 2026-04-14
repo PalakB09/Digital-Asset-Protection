@@ -14,7 +14,7 @@ export function PageHeader({ title, subtitle, action, backHref, backLabel }: Pag
     <div
       className="sticky top-0 z-30 px-8 py-5"
       style={{
-        background: "rgba(11,15,23,0.85)",
+        background: "color-mix(in srgb, var(--bg-secondary) 88%, transparent)",
         backdropFilter: "blur(12px)",
         borderBottom: "1px solid var(--border-subtle)",
       }}

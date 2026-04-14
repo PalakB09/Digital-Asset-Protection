@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, type ReactElement } from "react";
 import { listViolations, generateDMCA, getDMCADownloadUrl, type Violation } from "@/lib/api";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { Button } from "@/components/ui/Button";
@@ -194,7 +194,7 @@ function JobQueueSection() {
 
 // ─── Platform Connections Section ──────────────────────────────────────────────
 function PlatformConnectionsSection() {
-  const icons: Record<string, JSX.Element> = {
+  const icons: Record<string, ReactElement> = {
     twitter: (
       <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
         <path d="m4 4 16 16m0-16L4 20"/>

@@ -1,11 +1,12 @@
 "use client";
 
 import Link from "next/link";
+import { useEffect } from "react";
 import { usePathname } from "next/navigation";
 import "./globals.css";
 
 // ─── Nav icon set ────────────────────────────────────────────────
-function Icon({ name, className = "" }: { name: string; className?: string }) {
+function Icon({ name, className = "", style }: { name: string; className?: string; style?: React.CSSProperties }) {
   const props = {
     width: 16,
     height: 16,
@@ -15,6 +16,7 @@ function Icon({ name, className = "" }: { name: string; className?: string }) {
     strokeLinecap: "round" as const,
     strokeLinejoin: "round" as const,
     className,
+    style,
   };
 
   switch (name) {
@@ -90,7 +92,7 @@ function Icon({ name, className = "" }: { name: string; className?: string }) {
 
 // ─── Nav items ────────────────────────────────────────────────────────────────
 const navItems = [
-  { href: "/",           label: "Dashboard",   icon: "dashboard"   },
+  { href: "/dashboard",  label: "Dashboard",   icon: "dashboard"   },
   { href: "/scan",       label: "Scan",        icon: "scan"        },
   { href: "/assets",     label: "Assets",      icon: "assets"      },
   { href: "/monitoring", label: "Monitoring",  icon: "monitoring"  },
@@ -137,21 +139,21 @@ function Sidebar() {
         </p>
         <nav className="flex flex-col gap-0.5">
           {navItems.map((item) => {
-            const isActive = pathname === item.href || (item.href !== "/" && pathname.startsWith(item.href));
+            const isActive = pathname === item.href || (item.href !== "/dashboard" && pathname.startsWith(item.href));
             return (
               <Link
                 key={item.href}
                 href={item.href}
                 className="relative flex items-center gap-2.5 h-9 px-3 rounded-[8px] text-[13px] font-medium transition-all select-none"
                 style={{
-                  color: isActive ? "var(--accent-primary)" : "var(--text-muted)",
-                  background: isActive ? "var(--accent-soft)" : "transparent",
+                  color: isActive ? "var(--text-primary)" : "var(--text-muted)",
+                  background: isActive ? "color-mix(in srgb, var(--accent-primary) 18%, transparent)" : "transparent",
                   borderLeft: isActive ? `2px solid var(--accent-primary)` : "2px solid transparent",
                 }}
                 onMouseEnter={(e) => {
                   if (!isActive) {
                     const el = e.currentTarget;
-                    el.style.background = "rgba(255,255,255,0.04)";
+                    el.style.background = "var(--surface-hover)";
                     el.style.color = "var(--text-secondary)";
                   }
                 }}
@@ -199,6 +201,15 @@ function Sidebar() {
 
 // ─── Root Layout ──────────────────────────────────────────────────────────────
 export default function RootLayout({ children }: { children: React.ReactNode }) {
+  const pathname = usePathname();
+  const isLandingPage = pathname === "/";
+
+  useEffect(() => {
+    const stored = typeof window !== "undefined" ? localStorage.getItem("mediashield-theme") : null;
+    const initial = stored === "light" ? "light" : "dark";
+    document.documentElement.setAttribute("data-theme", initial);
+  }, []);
+
   return (
     <html lang="en" className="h-full">
       <head>
@@ -207,10 +218,16 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <meta name="viewport" content="width=device-width, initial-scale=1" />
       </head>
       <body className="h-full antialiased">
-        <Sidebar />
-        <div className="ml-[220px] min-h-screen flex flex-col" style={{ background: "var(--bg-primary)" }}>
-          {children}
-        </div>
+        {isLandingPage ? (
+          <div className="min-h-screen relative">{children}</div>
+        ) : (
+          <>
+            <Sidebar />
+            <div className="ml-[220px] min-h-screen flex flex-col" style={{ background: "var(--bg-primary)" }}>
+              {children}
+            </div>
+          </>
+        )}
       </body>
     </html>
   );
