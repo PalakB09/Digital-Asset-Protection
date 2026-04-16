@@ -971,11 +971,11 @@ async def run_twitter_scrape_for_asset(
                                                     },
                                                 }
                                             )
+                                            try:
+                                                os.remove(final_path)
+                                            except OSError:
+                                                pass
                                             break
-                                        try:
-                                            os.remove(final_path)
-                                        except OSError:
-                                            pass
                                     else:
                                         result = match_image(image, db)
                                         if not result.matched:
@@ -1009,11 +1009,11 @@ async def run_twitter_scrape_for_asset(
                                                 "match": candidate,
                                             }
                                         )
-                                        break
                                         try:
                                             os.remove(final_path)
                                         except OSError:
                                             pass
+                                        break
                             finally:
                                 await asyncio.sleep(delay_post_sec)
 
