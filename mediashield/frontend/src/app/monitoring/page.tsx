@@ -9,6 +9,7 @@ import {
   getPipelineStatus,
   triggerAssetScan,
   listAssets,
+  getMonitoringImageUrl,
   type MonitoringEvent,
   type MonitoredChannel,
   type PipelineStatus,
@@ -19,7 +20,6 @@ import { Button } from "@/components/ui/Button";
 import { Badge } from "@/components/ui/Badge";
 import { Skeleton } from "@/components/ui/Skeleton";
 
-const API_BASE = "http://localhost:8000/api";
 const LIMIT = 50;
 
 // ─── Platform metadata ─────────────────────────────────────────────────────────
@@ -397,9 +397,9 @@ function EventFeed({
                   {evt.image_url ? (
                     <div
                       className="w-10 h-10 neu-inset rounded-[10px] overflow-hidden shrink-0 cursor-pointer border border-transparent hover:border-[var(--neu-primary)] transition-colors"
-                      onClick={() => setMediaViewer(API_BASE.replace("/api", "") + evt.image_url)}
+                      onClick={() => setMediaViewer(getMonitoringImageUrl(evt.image_url!))}
                     >
-                      <img src={API_BASE.replace("/api", "") + evt.image_url} alt="" className="w-full h-full object-cover opacity-90" />
+                      <img src={getMonitoringImageUrl(evt.image_url)} alt="" className="w-full h-full object-cover opacity-90" />
                     </div>
                   ) : (
                     <div className="w-10 h-10 neu-inset rounded-[10px] shrink-0 flex items-center justify-center text-[var(--neu-text-faint)]">

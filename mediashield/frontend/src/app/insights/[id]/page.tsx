@@ -2,11 +2,9 @@
 
 import { useState, useEffect } from "react";
 import { useParams } from "next/navigation";
-import { getAsset, getAssetImageUrl, type Asset } from "@/lib/api";
+import { getAsset, getAssetImageUrl, getAssetInsights, type Asset, type InsightsData } from "@/lib/api";
 import { Skeleton } from "@/components/ui/Skeleton";
 import Link from "next/link";
-
-const API_BASE = "http://localhost:8000/api";
 
 // ─── Design tokens (local, Zed-dark palette) ─────────────────────────────────
 const T = {
@@ -27,35 +25,6 @@ const T = {
   successBg:   "rgba(22,163,74,0.10)",
 } as const;
 
-// ─── InsightsData interface ────────────────────────────────────────────────────
-interface InsightsData {
-  asset_id: string;
-  total_violations: number;
-  threat_metrics: {
-    average_threat_score: number;
-    highest_threat_platform: string;
-    total_estimated_views: number;
-  };
-  leaker_profile: {
-    top_leaker: string;
-    leaker_risk_level: string;
-  };
-  semantic_intent: {
-    primary_intent: string;
-    ai_summary: string;
-  };
-  alteration_analysis: {
-    visually_altered_count: number;
-    average_ssim_score: number;
-  };
-  message?: string;
-}
-
-async function fetchInsights(id: string): Promise<InsightsData> {
-  const res = await fetch(`${API_BASE}/assets/${id}/insights`);
-  if (!res.ok) throw new Error("Failed to load insights");
-  return res.json();
-}
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 function fmtViews(n: number) {
@@ -525,7 +494,7 @@ export default function AssetInsightDetailPage() {
 
   useEffect(() => {
     if (!assetId) return;
-    Promise.all([getAsset(assetId), fetchInsights(assetId)])
+    Promise.all([getAsset(assetId), getAssetInsights(assetId)])
       .then(([a, ins]) => { setAsset(a); setInsights(ins); })
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false));

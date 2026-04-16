@@ -12,6 +12,7 @@ import {
   getJobStatus,
   listViolations,
   deleteAsset,
+  getDistributionDownloadUrl,
   type Asset,
   type AssetDistribution,
   type Violation,
@@ -21,7 +22,6 @@ import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { Skeleton } from "@/components/ui/Skeleton";
 
-const API_BASE = "http://localhost:8000/api";
 
 // ─── Tab bar ──────────────────────────────────────────────────────────────────
 type TabId = "distributions" | "violations";
@@ -247,7 +247,7 @@ function DistributionsTab({
                     <td style={{ textAlign: "right" }}>
                       {d.generated ? (
                         <a
-                          href={`${API_BASE}/assets${d.distribution_url?.replace("/api/assets", "")}`}
+                          href={getDistributionDownloadUrl(d.distribution_url || "")}
                           target="_blank"
                           rel="noreferrer"
                         >

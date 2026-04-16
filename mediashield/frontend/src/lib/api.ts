@@ -124,6 +124,29 @@ export interface TwitterScrapeJobResponse {
   asset_name: string;
 }
 
+export interface InsightsData {
+  asset_id: string;
+  total_violations: number;
+  threat_metrics: {
+    average_threat_score: number;
+    highest_threat_platform: string;
+    total_estimated_views: number;
+  };
+  leaker_profile: {
+    top_leaker: string;
+    leaker_risk_level: string;
+  };
+  semantic_intent: {
+    primary_intent: string;
+    ai_summary: string;
+  };
+  alteration_analysis: {
+    visually_altered_count: number;
+    average_ssim_score: number;
+  };
+  message?: string;
+}
+
 // ─── Assets ────────────────────────────────────────────────────
 
 export async function registerAsset(file: File, description?: string): Promise<AssetRegistrationResponse> {
@@ -316,6 +339,14 @@ export async function getStats(): Promise<Stats> {
   return res.json();
 }
 
+// ─── Insights ──────────────────────────────────────────────────
+
+export async function getAssetInsights(assetId: string): Promise<InsightsData> {
+  const res = await fetch(`${API_BASE}/assets/${assetId}/insights`);
+  if (!res.ok) throw new Error("Failed to load insights");
+  return res.json();
+}
+
 // ─── Jobs ──────────────────────────────────────────────────────
 
 export async function getJobStatus(jobId: string): Promise<{
@@ -418,6 +449,24 @@ export async function generateDMCA(violationId: string): Promise<string> {
 /** Get the DMCA PDF download URL for a violation. */
 export function getDMCADownloadUrl(violationId: string): string {
   return `${API_BASE}/violations/${violationId}/dmca/pdf`;
+}
+
+/** Get the download URL for a protected asset distribution copy. */
+export function getDistributionDownloadUrl(distributionUrl: string): string {
+  // distributionUrl is expected to be "/api/assets/download/{id}"
+  // we want to ensure it uses the current API_BASE
+  if (distributionUrl.startsWith("/api")) {
+    return `${API_BASE.replace("/api", "")}${distributionUrl}`;
+  }
+  return `${API_BASE}${distributionUrl}`;
+}
+
+/** Get the image URL for a monitoring event or violation. */
+export function getMonitoringImageUrl(imageUrl: string): string {
+  if (!imageUrl) return "";
+  if (imageUrl.startsWith("http")) return imageUrl;
+  // If it's a relative path from the backend
+  return `${API_BASE.replace("/api", "")}${imageUrl}`;
 }
 
 
