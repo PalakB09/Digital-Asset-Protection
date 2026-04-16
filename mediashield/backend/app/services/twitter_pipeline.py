@@ -485,58 +485,62 @@ async def _collect_posts_for_keyword(page, keyword: str, limit: int) -> list[dic
             articles = page.locator("article")
             count = await articles.count()
             for index in range(count):
-                article = articles.nth(index)
-                link = article.locator('a[href*="/status/"]').first
-                href = await link.get_attribute("href")
-                if not href:
-                    continue
+                try:
+                    article = articles.nth(index)
+                    link = article.locator('a[href*="/status/"]').first
+                    href = await _safe_get_attr(link, "href", timeout_ms=1200)
+                    if not href:
+                        continue
 
-                post_text = await _extract_post_text(article)
-                if not _is_relevant_post(keyword, post_text):
-                    continue
+                    post_text = await _extract_post_text(article)
+                    if not _is_relevant_post(keyword, post_text):
+                        continue
 
-                post_url = _normalize_post_url(urljoin(_X_BASE_URL, href))
-                if post_url in seen_urls:
-                    continue
+                    post_url = _normalize_post_url(urljoin(_X_BASE_URL, href))
+                    if post_url in seen_urls:
+                        continue
 
-                media_urls: list[str] = []
-                for selector in [
-                    'img[src*="pbs.twimg.com/media"]',
-                    'img[src*="pbs.twimg.com/ext_tw_video_thumb"]',
-                    "video source[src]",
-                    "source[src]",
-                    "video[src]",
-                ]:
-                    nodes = article.locator(selector)
-                    node_count = await nodes.count()
-                    for node_index in range(node_count):
-                        src = await _safe_get_attr(nodes.nth(node_index), "src", timeout_ms=1500)
-                        if src:
-                            media_urls.append(urljoin(_X_BASE_URL, src))
+                    media_urls: list[str] = []
+                    for selector in [
+                        'img[src*="pbs.twimg.com/media"]',
+                        'img[src*="pbs.twimg.com/ext_tw_video_thumb"]',
+                        "video source[src]",
+                        "source[src]",
+                        "video[src]",
+                    ]:
+                        nodes = article.locator(selector)
+                        node_count = await nodes.count()
+                        for node_index in range(node_count):
+                            src = await _safe_get_attr(nodes.nth(node_index), "src", timeout_ms=1500)
+                            if src:
+                                media_urls.append(urljoin(_X_BASE_URL, src))
 
-                if not media_urls:
-                    og_image = await _safe_get_attr(
-                        article.locator('meta[property="og:image"]').first,
-                        "content",
+                    if not media_urls:
+                        og_image = await _safe_get_attr(
+                            article.locator('meta[property="og:image"]').first,
+                            "content",
+                        )
+                        og_video = await _safe_get_attr(
+                            article.locator('meta[property="og:video"]').first,
+                            "content",
+                        )
+                        if og_image:
+                            media_urls.append(urljoin(_X_BASE_URL, og_image))
+                        if og_video:
+                            media_urls.append(urljoin(_X_BASE_URL, og_video))
+
+                    seen_urls.add(post_url)
+                    unique_posts.append(
+                        {
+                            "post_url": post_url,
+                            "media_urls": list(dict.fromkeys(media_urls)),
+                        }
                     )
-                    og_video = await _safe_get_attr(
-                        article.locator('meta[property="og:video"]').first,
-                        "content",
-                    )
-                    if og_image:
-                        media_urls.append(urljoin(_X_BASE_URL, og_image))
-                    if og_video:
-                        media_urls.append(urljoin(_X_BASE_URL, og_video))
-
-                seen_urls.add(post_url)
-                unique_posts.append(
-                    {
-                        "post_url": post_url,
-                        "media_urls": list(dict.fromkeys(media_urls)),
-                    }
-                )
-                if len(unique_posts) >= limit:
-                    return unique_posts
+                    if len(unique_posts) >= limit:
+                        return unique_posts
+                except Exception as exc:
+                    log.debug("[twitter] skip unstable article node keyword=%r index=%s: %s", keyword, index, exc)
+                    continue
 
             await page.mouse.wheel(0, 2400)
             await page.wait_for_timeout(1800)
