@@ -4,11 +4,14 @@ and creates violation + propagation records on match.
 """
 
 from uuid import uuid4
+import json
+import numpy as np
 from PIL import Image
 from sqlalchemy.orm import Session
+from skimage.metrics import structural_similarity as ssim
 
 from app.models.violation import Violation, PropagationEdge
-from app.models.asset import AssetRecipient
+from app.models.asset import AssetRecipient, Asset
 from app.services.matcher import match_image, MatchResult
 from app.services.watermark import extract_watermark
 
@@ -28,8 +31,27 @@ def scan_image(
     
     Returns a dict with scan results.
     """
+
     # Run through the tiered matcher
     result: MatchResult = match_image(image, db, context_text=context_text)
+
+    # -------------------------------
+    # Detection Stage Tracking
+    # -------------------------------
+    stage_results = {
+        "phash": False,
+        "clip": False,
+        "watermark": False,
+        "hybrid": False
+    }
+
+    if result.match_type == "phash":
+        stage_results["phash"] = True
+    elif result.match_type == "clip":
+        stage_results["clip"] = True
+    elif result.match_type == "hybrid":
+        stage_results["hybrid"] = True
+        stage_results["phash"] = True  # hybrid includes phash
 
     if not result.matched:
         return {
@@ -38,29 +60,58 @@ def scan_image(
             "details": result.details,
         }
 
-    # L3 watermark verification (highest-confidence attribution when present)
+    # -------------------------------
+    # Watermark Verification (L3)
+    # -------------------------------
     extracted = extract_watermark(image)
-    
+
     watermark_verified = False
     attribution = None
     leaked_by = None
 
     if extracted:
+        stage_results["watermark"] = True
+
         if extracted == result.asset_id:
             watermark_verified = True
             attribution = extracted
         else:
-            recipient = db.query(AssetRecipient).filter(AssetRecipient.watermark_id == extracted).first()
+            recipient = db.query(AssetRecipient).filter(
+                AssetRecipient.watermark_id == extracted
+            ).first()
             if recipient:
                 watermark_verified = True
                 attribution = extracted
-                leaked_by = recipient.recipient_name # Using name for better display instead of just email
+                leaked_by = recipient.recipient_name
 
     match_tier = "VERIFIED" if watermark_verified else result.match_tier
     match_type = "watermark" if watermark_verified else result.match_type
 
-    # Create violation record
+    # -------------------------------
+    # SSIM Computation
+    # -------------------------------
+    ssim_score = None
+    try:
+        asset = db.query(Asset).filter(Asset.id == result.asset_id).first()
+
+        if asset and asset.original_path:
+            original = Image.open(asset.original_path).convert("RGB").resize((256, 256))
+            candidate_resized = image.convert("RGB").resize((256, 256))
+
+            ssim_score = float(ssim(
+                np.array(original),
+                np.array(candidate_resized),
+                channel_axis=2,
+                data_range=255
+            ))
+    except Exception:
+        ssim_score = None
+
+    # -------------------------------
+    # Create Violation Record
+    # -------------------------------
     violation_id = str(uuid4())
+
     violation = Violation(
         id=violation_id,
         asset_id=result.asset_id,
@@ -73,10 +124,19 @@ def scan_image(
         watermark_verified=watermark_verified,
         attribution=attribution,
         leaked_by=leaked_by,
+
+        # New fields
+        detection_stage_results=json.dumps(stage_results),
+        phash_distance=result.phash_distance,
+        clip_similarity=result.clip_similarity,
+        ssim_score=ssim_score,
     )
+
     db.add(violation)
 
-    # Create propagation edge
+    # -------------------------------
+    # Create Propagation Edge
+    # -------------------------------
     edge = PropagationEdge(
         id=str(uuid4()),
         source_asset_id=result.asset_id,
@@ -85,6 +145,7 @@ def scan_image(
         leaked_by=leaked_by,
         watermark_id=attribution if watermark_verified else None,
     )
+
     db.add(edge)
 
     db.commit()
@@ -101,5 +162,7 @@ def scan_image(
         "watermark_verified": watermark_verified,
         "attribution": attribution,
         "leaked_by": leaked_by,
+        "ssim_score": ssim_score,
+        "detection_stage_results": stage_results,
         "details": result.details,
     }

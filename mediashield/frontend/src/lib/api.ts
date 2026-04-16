@@ -126,27 +126,135 @@ export interface TwitterScrapeJobResponse {
 
 export interface InsightsData {
   asset_id: string;
+  asset_name: string;
+  asset_type: string | null;
+  asset_keywords: string[];
+  registered_recipients: number;
+  total_distributions: number;
   total_violations: number;
-  threat_metrics: {
-    average_threat_score: number;
-    highest_threat_platform: string;
+  propagation_channels: number;
+ 
+  /** Weighted composite 0–10 (Gemini 40% + exposure 30% + confidence 30%) */
+  composite_threat_score: number;
+ 
+  /** Temporal spread metrics */
+  velocity: {
+    first_seen: string | null;
+    last_seen: string | null;
+    days_active: number;
+    violations_per_day: number;
+    last_7d_count: number;
+    last_30d_count: number;
+    acceleration: "ACCELERATING" | "STABLE" | "DECLINING" | "UNKNOWN";
+  };
+ 
+  /** Engagement / exposure metrics */
+  engagement_risk: {
     total_estimated_views: number;
+    total_estimated_likes: number;
+    max_single_violation_views: number;
+    max_single_violation_likes: number;
+    avg_views_per_violation: number;
+    exposure_tier: "VIRAL" | "HIGH" | "MODERATE" | "LOW" | "UNKNOWN";
+    top_violation_id: string | null;
+    top_violation_url: string | null;
+    top_violation_platform: string | null;
   };
+ 
+  /** Per-platform stats, sorted by total_views descending */
+  platform_breakdown: Array<{
+    platform: string;
+    violation_count: number;
+    total_views: number;
+    total_likes: number;
+    avg_confidence: number;
+    watermark_verified_count: number;
+    high_tier_count: number;
+    dominant_match_type: string;
+  }>;
+ 
+  /** Highest-view platform name */
+  highest_threat_platform: string;
+ 
+  /** Aggregated signal quality */
+  match_quality: {
+    overall_confidence_avg: number;
+    reranked_confidence_avg: number;
+    watermark_verified_count: number;
+    watermark_verified_pct: number;
+    match_tier_counts: Record<string, number>;
+    match_type_counts: Record<string, number>;
+    phash: {
+      available: number;
+      avg_distance: number;
+      identical_count: number;
+      very_similar_count: number;
+      similar_count: number;
+    };
+    clip_similarity: {
+      available: number;
+      avg: number;
+      above_0_92_count: number;
+    };
+    ssim_alteration: {
+      available: number;
+      avg_ssim: number;
+      heavily_altered_count: number;
+      mildly_altered_count: number;
+      near_identical_count: number;
+    };
+  };
+ 
+  /** Which detection pipeline stages fired */
+  detection_stages: {
+    violations_with_stage_data: number;
+    stage_hit_counts: Record<string, number>;
+  };
+ 
+  /** Watermark attribution forensics */
+  watermark_forensics: {
+    attributed_violation_count: number;
+    traced_to_recipient_count: number;
+    attribution_rate_pct: number;
+    traced_recipients: Array<{
+      violation_id: string;
+      watermark_id: string;
+      recipient_name: string;
+      recipient_identifier: string | null;
+      platform: string;
+      source_url: string;
+      detected_at: string | null;
+    }>;
+  };
+ 
+  /** Leaker profiling */
   leaker_profile: {
-    top_leaker: string;
-    leaker_risk_level: string;
+    top_leaker: string | null;
+    top_leaker_count: number;
+    unique_leaker_count: number;
+    leaker_risk_level: "CRITICAL" | "HIGH" | "MEDIUM" | "LOW" | "UNKNOWN";
+    is_registered_recipient: boolean;
+    all_leakers: Array<{ leaker: string; count: number }>;
   };
-  semantic_intent: {
-    primary_intent: string;
+ 
+  /** Media type and processing health */
+  media_info: {
+    media_type_counts: Record<string, number>;
+    processing_status_counts: Record<string, number>;
+    failed_count: number;
+    pending_count: number;
+  };
+ 
+  /** Gemini AI analysis */
+  ai_analysis: {
+    primary_intent: "COMMERCIAL_PIRACY" | "PARODY_MEME" | "NEWS_REVIEW" | "UNKNOWN";
+    risk_score: number;
     ai_summary: string;
   };
-  alteration_analysis: {
-    visually_altered_count: number;
-    average_ssim_score: number;
-  };
+ 
+  // Optional: present only when total_violations === 0
   message?: string;
 }
-
 // ─── Assets ────────────────────────────────────────────────────
 
 export async function registerAsset(file: File, description?: string): Promise<AssetRegistrationResponse> {

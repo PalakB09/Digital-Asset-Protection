@@ -63,7 +63,7 @@ async def analyze_leak_context(scraped_text: str, platform: str, views: int) -> 
 
     try:
         response = client.models.generate_content(
-            model="gemini-2.0-flash",
+            model="gemini-2.5-flash",
             contents=prompt,
             config=GenerateContentConfig(
                 response_mime_type="application/json",
