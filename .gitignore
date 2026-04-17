@@ -19,3 +19,4 @@ digital_asset_protection_strategy.md
 # Databases
 **/*.db
 **/storage/
+.DS_Store

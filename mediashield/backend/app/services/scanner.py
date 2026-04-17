@@ -130,6 +130,7 @@ def scan_image(
         phash_distance=result.phash_distance,
         clip_similarity=result.clip_similarity,
         ssim_score=ssim_score,
+        confidence_score=result.confidence,   # or a computed score
     )
 
     db.add(violation)

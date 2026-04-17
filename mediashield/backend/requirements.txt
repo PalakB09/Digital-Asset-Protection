@@ -28,3 +28,4 @@ thefuzz
 python-Levenshtein
 bs4
 ddgs
+scikit-image
