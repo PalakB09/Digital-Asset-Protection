@@ -85,6 +85,12 @@ def _run_sqlite_migrations():
             conn.exec_driver_sql("ALTER TABLE violations ADD COLUMN ssim_score FLOAT")
         if "scraped_text" not in violation_cols:
             conn.exec_driver_sql("ALTER TABLE violations ADD COLUMN scraped_text TEXT")
+        if "phash_distance" not in violation_cols:
+            conn.exec_driver_sql("ALTER TABLE violations ADD COLUMN phash_distance INTEGER")
+        if "clip_similarity" not in violation_cols:
+            conn.exec_driver_sql("ALTER TABLE violations ADD COLUMN clip_similarity FLOAT")
+        if "confidence_score" not in violation_cols:
+            conn.exec_driver_sql("ALTER TABLE violations ADD COLUMN confidence_score FLOAT")
 
         edge_cols = _table_columns(conn, "propagation_edges")
         if "leaked_by" not in edge_cols:

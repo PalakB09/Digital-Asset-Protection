@@ -488,9 +488,9 @@ export default function MonitoringPage() {
     try {
       const [chans, feed, status, assetList] = await Promise.all([
         getMonitoredChannels().catch(() => [] as MonitoredChannel[]),
-        getMonitoringFeed(LIMIT, 0),
-        getPipelineStatus(),
-        listAssets(),
+        getMonitoringFeed(LIMIT, 0).catch(() => [] as MonitoringEvent[]),
+        getPipelineStatus().catch(() => null),
+        listAssets().catch(() => [] as Asset[]),
       ]);
       setChannels(chans);
       setEvents(feed);

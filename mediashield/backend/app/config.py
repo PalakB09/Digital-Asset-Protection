@@ -46,8 +46,8 @@ CLIP_MODEL_NAME = "openai/clip-vit-base-patch32"
 
 # Gemini (keywords)
 GEMINI_API_KEY = (os.environ.get("GEMINI_API_KEY", "") or "").strip().lstrip("\ufeff").strip('"').strip("'")
-# Default Gemini model for keyword generation (code-defined; not from .env)
-GEMINI_MODEL = "models/gemini-2.5-flash-lite"
+# Default Gemini model for keyword generation
+GEMINI_MODEL = "gemini-1.5-flash"
 
 
 def _int_env(name: str, default: int = 0) -> int:
