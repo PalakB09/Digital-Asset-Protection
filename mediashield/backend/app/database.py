@@ -2,9 +2,13 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, declarative_base
 from app.config import DATABASE_URL
 
+connect_args = {}
+if DATABASE_URL.startswith("sqlite"):
+    connect_args["check_same_thread"] = False
+
 engine = create_engine(
     DATABASE_URL,
-    connect_args={"check_same_thread": False},  # SQLite needs this
+    connect_args=connect_args,
     echo=False,
 )
 
@@ -27,8 +31,10 @@ def init_db():
     from app.models.asset import Asset, AssetRecipient, AssetDistribution  # noqa: F401
     from app.models.violation import Violation, PropagationEdge  # noqa: F401
     from app.models.telegram import MonitoredChannel  # noqa: F401
+    from app.models.job import JobRecord  # noqa: F401
     Base.metadata.create_all(bind=engine)
-    _migrate()
+    if DATABASE_URL.startswith("sqlite"):
+        _migrate()
 
 
 def _migrate():

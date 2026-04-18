@@ -19,7 +19,11 @@ CHROMA_DIR = BASE_DIR / "storage" / "chroma_db"
 TELEGRAM_DIR = BASE_DIR / "storage" / "telegram"
 
 # Database
-DATABASE_URL = f"sqlite:///{BASE_DIR / 'storage' / 'mediashield.db'}"
+POSTGRES_URL = (os.environ.get("POSTGRES_URL") or "").strip()
+if POSTGRES_URL:
+    DATABASE_URL = POSTGRES_URL
+else:
+    DATABASE_URL = f"sqlite:///{BASE_DIR / 'storage' / 'mediashield.db'}"
 
 # Matching thresholds
 PHASH_THRESHOLD = 8        # Hamming distance ≤ 8 → HIGH match

@@ -29,3 +29,4 @@ python-Levenshtein
 bs4
 ddgs
 scikit-image
+psycopg2-binary
