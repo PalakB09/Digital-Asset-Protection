@@ -1,34 +1,31 @@
-import sqlite3
 import os
+from sqlalchemy import create_engine, inspect, text
+from dotenv import load_dotenv
 
-db_path = os.path.join('storage', 'mediashield.db')
-if not os.path.exists(db_path):
-    print(f"Error: {db_path} not found.")
-    exit(1)
+load_dotenv()
 
-conn = sqlite3.connect(db_path)
-cursor = conn.cursor()
+DB_PATH = os.path.join('storage', 'mediashield.db')
+DATABASE_URL = os.environ.get("POSTGRES_URL") or os.environ.get("DATABASE_URL") or f"sqlite:///{DB_PATH}"
 
-# List tables
-cursor.execute("SELECT name FROM sqlite_master WHERE type='table';")
-tables = [t[0] for t in cursor.fetchall()]
-print(f"Tables: {tables}")
+engine = create_engine(DATABASE_URL)
+inspector = inspect(engine)
 
-# Check violations table columns
-if 'violations' in tables:
-    cursor.execute("PRAGMA table_info(violations)")
-    columns = [row[1] for row in cursor.fetchall()]
-    print(f"Columns in violations: {columns}")
-    
-    # Add missing columns
-    for col, dtype in [('phash_distance', 'INTEGER'), ('clip_similarity', 'FLOAT'), ('confidence_score', 'FLOAT')]:
-        if col not in columns:
-            print(f"Adding column {col}...")
-            cursor.execute(f"ALTER TABLE violations ADD COLUMN {col} {dtype}")
-    
-    conn.commit()
-    print("Schema updated.")
-else:
-    print("Error: 'violations' table not found.")
+print(f"Connecting to database...")
 
-conn.close()
+with engine.connect() as conn:
+    tables = inspector.get_table_names()
+    print(f"Tables: {tables}")
+
+    if 'violations' in tables:
+        columns = [col['name'] for col in inspector.get_columns('violations')]
+        print(f"Columns in violations: {columns}")
+        
+        for col, dtype in [('phash_distance', 'INTEGER'), ('clip_similarity', 'FLOAT'), ('confidence_score', 'FLOAT')]:
+            if col not in columns:
+                print(f"Adding column {col}...")
+                conn.execute(text(f"ALTER TABLE violations ADD COLUMN {col} {dtype}"))
+        
+        conn.commit()
+        print("Schema updated.")
+    else:
+        print("Error: 'violations' table not found.")

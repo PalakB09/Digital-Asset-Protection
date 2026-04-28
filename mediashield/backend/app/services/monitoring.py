@@ -185,6 +185,7 @@ def _process_single_media(db, event: PostEvent, media_url: str):
         views=event.views,
     )
     db.add(violation)
+    db.flush()
 
     edge = PropagationEdge(
         id=str(uuid4()),

@@ -1,12 +1,15 @@
 # run_migration.py  — place in backend/ and run once with: python run_migration.py
 
-import sqlite3
 import os
+from sqlalchemy import create_engine, inspect, text
+from dotenv import load_dotenv
+
+load_dotenv()
 
 DB_PATH = os.path.join(os.path.dirname(__file__), "storage", "mediashield.db")
+DATABASE_URL = os.environ.get("POSTGRES_URL") or os.environ.get("DATABASE_URL") or f"sqlite:///{DB_PATH}"
 
 MIGRATIONS = [
-    # New insight/signal columns on violations
     "ALTER TABLE violations ADD COLUMN phash_distance INTEGER",
     "ALTER TABLE violations ADD COLUMN clip_similarity REAL",
     "ALTER TABLE violations ADD COLUMN confidence_score REAL",
@@ -21,22 +24,26 @@ MIGRATIONS = [
     "ALTER TABLE violations ADD COLUMN leaked_by TEXT",
 ]
 
-conn = sqlite3.connect(DB_PATH)
-cursor = conn.cursor()
+engine = create_engine(DATABASE_URL)
+inspector = inspect(engine)
 
-# Fetch existing columns so we skip any already present
-cursor.execute("PRAGMA table_info(violations)")
-existing = {row[1] for row in cursor.fetchall()}
-print(f"Existing columns: {existing}")
+print(f"Connecting to database...")
 
-for stmt in MIGRATIONS:
-    col = stmt.split("ADD COLUMN")[1].strip().split()[0]
-    if col in existing:
-        print(f"  SKIP  {col} (already exists)")
+with engine.connect() as conn:
+    if inspector.has_table("violations"):
+        existing = {col["name"] for col in inspector.get_columns("violations")}
+        print(f"Existing columns: {existing}")
+
+        for stmt in MIGRATIONS:
+            col = stmt.split("ADD COLUMN")[1].strip().split()[0]
+            if col in existing:
+                print(f"  SKIP  {col} (already exists)")
+            else:
+                conn.execute(text(stmt))
+                print(f"  ADD   {col}")
+        
+        conn.commit()
     else:
-        cursor.execute(stmt)
-        print(f"  ADD   {col}")
+        print("Error: 'violations' table not found.")
 
-conn.commit()
-conn.close()
 print("\nMigration complete.")

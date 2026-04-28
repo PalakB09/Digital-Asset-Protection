@@ -515,7 +515,8 @@ export default function AssetsPage() {
     try {
       const data = await listAssets();
       setAssets(data);
-    } catch {
+    } catch (error) {
+      console.error("Failed to load assets:", error);
     } finally {
       setLoading(false);
     }

@@ -96,6 +96,7 @@ def _create_video_violation(filepath: str, filename: str, source_url: str, db) -
         leaked_by=leaked_by,
     )
     db.add(violation)
+    db.flush()
     edge = PropagationEdge(
         id=str(uuid4()),
         source_asset_id=result.asset_id,

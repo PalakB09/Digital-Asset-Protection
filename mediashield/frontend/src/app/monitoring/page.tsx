@@ -133,11 +133,11 @@ function TriggerPanel({ assets }: { assets: Asset[] }) {
       <form onSubmit={handleSubmit} className="p-6 grid grid-cols-1 md:grid-cols-4 gap-4 items-end">
         <div className="md:col-span-2">
           <label className="block text-[11px] font-bold uppercase tracking-widest text-[var(--neu-text-muted)] mb-2">Asset</label>
-          <div className="relative">
+          <div className="relative z-20">
             <select
               value={assetId}
               onChange={(e) => setAssetId(e.target.value)}
-              className="neu-input appearance-none pr-8"
+              className="neu-input appearance-none pr-8 relative z-20 cursor-pointer"
             >
               <option value="">— Select asset —</option>
               {assets.map((a) => (
@@ -153,11 +153,11 @@ function TriggerPanel({ assets }: { assets: Asset[] }) {
         </div>
         <div>
           <label className="block text-[11px] font-bold uppercase tracking-widest text-[var(--neu-text-muted)] mb-2">Platform</label>
-          <div className="relative">
+          <div className="relative z-20">
             <select
               value={platform}
               onChange={(e) => setPlatform(e.target.value)}
-              className="neu-input appearance-none pr-8"
+              className="neu-input appearance-none pr-8 relative z-20 cursor-pointer"
             >
               <option value="all">All platforms</option>
               <option value="youtube">YouTube</option>
@@ -172,9 +172,9 @@ function TriggerPanel({ assets }: { assets: Asset[] }) {
             </div>
           </div>
         </div>
-        <div className="flex flex-col gap-2">
+        <div className="flex flex-col gap-2 relative z-10">
           <label className="block text-[11px] font-bold uppercase tracking-widest text-[var(--neu-text-muted)]">Max keywords: <span className="font-mono text-[var(--neu-text)]">{maxKw}</span></label>
-          <div className="neu-progress-track h-2 mb-3 mt-1">
+          <div className="relative w-full h-2 bg-[var(--bg-secondary)] border border-[var(--border-subtle)] rounded-full overflow-hidden mb-3 mt-1">
              <input type="range" min={1} max={30} value={maxKw} onChange={(e) => setMaxKw(+e.target.value)} className="w-full absolute inset-0 opacity-0 cursor-pointer" />
              <div className="neu-progress-fill h-full rounded-full" style={{ width: `${(maxKw/30)*100}%` }} />
           </div>

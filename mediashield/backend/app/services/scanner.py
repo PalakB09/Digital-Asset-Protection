@@ -134,6 +134,7 @@ def scan_image(
     )
 
     db.add(violation)
+    db.flush()  # Ensure violation is sent to DB before adding propagation edge
 
     # -------------------------------
     # Create Propagation Edge
