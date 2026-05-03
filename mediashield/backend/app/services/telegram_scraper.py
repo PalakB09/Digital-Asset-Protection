@@ -37,7 +37,10 @@ async def _with_flood_wait(coro_factory: Callable[[], Awaitable[T]], retries: in
 
 
 def build_client():
-    """TelegramClient instance (not started)."""
+    """TelegramClient instance (not started). Uses an ephemeral session copy to prevent database locks."""
+    import os
+    import shutil
+    import uuid
     from telethon import TelegramClient
 
     from app.config import (
@@ -46,7 +49,33 @@ def build_client():
         TELEGRAM_SESSION_PATH,
     )
 
-    return TelegramClient(str(TELEGRAM_SESSION_PATH), TELEGRAM_API_ID, TELEGRAM_API_HASH)
+    base_session = f"{TELEGRAM_SESSION_PATH}.session"
+    temp_path = f"{TELEGRAM_SESSION_PATH}_worker_{uuid.uuid4().hex[:8]}"
+    temp_file = f"{temp_path}.session"
+
+    if os.path.exists(base_session):
+        try:
+            import sqlite3
+            # Use SQLite's native backup API to safely clone the DB even if it's locked or in a transaction
+            with sqlite3.connect(f"file:{base_session}?mode=ro", uri=True) as src:
+                with sqlite3.connect(temp_file) as dst:
+                    src.backup(dst)
+        except Exception as e:
+            log.warning(f"Failed to copy session file: {e}")
+
+    class EphemeralTelegramClient(TelegramClient):
+        async def disconnect(self):
+            await super().disconnect()
+            try:
+                if os.path.exists(temp_file):
+                    os.remove(temp_file)
+                journal = f"{temp_file}-journal"
+                if os.path.exists(journal):
+                    os.remove(journal)
+            except Exception as e:
+                log.warning(f"Failed to remove temp session: {e}")
+
+    return EphemeralTelegramClient(temp_path, TELEGRAM_API_ID, TELEGRAM_API_HASH)
 
 
 async def find_public_channels_by_keyword(client, keyword: str, limit: int = 20) -> list[dict[str, Any]]:

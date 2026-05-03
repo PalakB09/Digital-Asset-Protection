@@ -100,61 +100,81 @@ async def handle_new_message(event):
         final_path = path_str
         final_name = os.path.basename(path_str)
         
-    db = SessionLocal()
-    try:
-        if suffix in _VIDEO_SUFFIX:
-            log.info(f"Running video detection on {final_name}")
+    # Use autoflush=True sessions so the Violation row is visible to the FK check
+    # before PropagationEdge is inserted (required by Postgres strict FK enforcement).
+    from app.database import sessionmaker, engine
+    autoflush_session = sessionmaker(autocommit=False, autoflush=True, bind=engine)
+
+    if suffix in _VIDEO_SUFFIX:
+        log.info(f"Running video detection on {final_name}")
+        db = autoflush_session()
+        try:
             out = _create_video_violation(final_path, final_name, url, db)
-            if not out:
-                db.rollback()
-                try:
-                    os.remove(final_path)
-                except OSError:
-                    pass
-            else:
-                log.info(f"🚨 VIDEO LEAK MATCHED! Asset: {out.get('asset_id')}")
-                fire_and_forget_broadcast(
-                    {
-                        "type": "violation_alert",
-                        "violation": {
-                            "violation_id": out.get("violation_id"),
-                            "asset_id": out.get("asset_id"),
-                            "platform": "telegram (real-time)",
-                            "source_url": url,
-                        },
-                    }
-                )
-        else:
-            log.info(f"Running image detection on {final_name}")
+        except Exception as e:
+            log.error(f"Failed to process video: {e}")
+            db.rollback()
+            out = None
+        finally:
+            db.close()
+
+        if not out:
             try:
-                image = Image.open(final_path).convert("RGB")
-                out = scan_image(image, db, source_url=url, platform="telegram", image_path=final_name)
-                if out.get("matched"):
-                    log.info(f"🚨 IMAGE LEAK MATCHED! Asset: {out.get('asset_id')}")
-                    fire_and_forget_broadcast(
-                        {
-                            "type": "violation_alert",
-                            "violation": {
-                                "violation_id": out.get("violation_id"),
-                                "asset_id": out.get("asset_id"),
-                                "platform": "telegram (real-time)",
-                                "source_url": url,
-                            },
-                        }
-                    )
-                else:
-                    try:
-                        os.remove(final_path)
-                    except OSError:
-                        pass
-            except Exception as e:
-                log.error(f"Failed to process image: {e}")
-                try:
-                    os.remove(final_path)
-                except OSError:
-                    pass
-    finally:
-        db.close()
+                os.remove(final_path)
+            except OSError:
+                pass
+        else:
+            log.info(f"🚨 VIDEO LEAK MATCHED! Asset: {out.get('asset_id')}")
+            fire_and_forget_broadcast(
+                {
+                    "type": "violation_alert",
+                    "violation": {
+                        "violation_id": out.get("violation_id"),
+                        "asset_id": out.get("asset_id"),
+                        "platform": "telegram (real-time)",
+                        "source_url": url,
+                    },
+                }
+            )
+    else:
+        log.info(f"Running image detection on {final_name}")
+        try:
+            image = Image.open(final_path).convert("RGB")
+        except Exception as e:
+            log.error(f"Failed to open image {final_name}: {e}")
+            try:
+                os.remove(final_path)
+            except OSError:
+                pass
+            return
+
+        db = autoflush_session()
+        try:
+            out = scan_image(image, db, source_url=url, platform="telegram", image_path=final_name)
+        except Exception as e:
+            log.error(f"Failed to process image: {e}")
+            db.rollback()
+            out = None
+        finally:
+            db.close()
+
+        if out and out.get("matched"):
+            log.info(f"🚨 IMAGE LEAK MATCHED! Asset: {out.get('asset_id')}")
+            fire_and_forget_broadcast(
+                {
+                    "type": "violation_alert",
+                    "violation": {
+                        "violation_id": out.get("violation_id"),
+                        "asset_id": out.get("asset_id"),
+                        "platform": "telegram (real-time)",
+                        "source_url": url,
+                    },
+                }
+            )
+        else:
+            try:
+                os.remove(final_path)
+            except OSError:
+                pass
 
 
 async def main():

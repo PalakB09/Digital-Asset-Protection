@@ -28,9 +28,11 @@ class MatchResult:
     asset_id: str | None = None
     asset_name: str | None = None
     confidence: float = 0.0
-    match_tier: str = "NONE"     # HIGH, MEDIUM, NONE
-    match_type: str = "none"     # phash, clip, none
+    match_tier: str = "NONE"
+    match_type: str = "none"
     details: str = ""
+    phash_distance: int | None = None      # ← ADDED
+    clip_similarity: float | None = None   # ← ADDED
 
 
 def match_image(image: Image.Image, db: Session, context_text: str | None = None) -> MatchResult:
@@ -85,6 +87,7 @@ def match_image(image: Image.Image, db: Session, context_text: str | None = None
             match_tier="HIGH",
             match_type="hybrid",
             details=f"Hybrid Score: {best_hybrid_score:.4f}",
+            phash_distance=hamming_distance(candidate_phash, best_hybrid_match.phash), # ← CORRECTLY PLACED
         )
 
     if best_phash_match is not None:
@@ -98,6 +101,7 @@ def match_image(image: Image.Image, db: Session, context_text: str | None = None
             match_tier="HIGH",
             match_type="phash",
             details=f"pHash Hamming distance: {best_phash_distance}",
+            phash_distance=best_phash_distance, # ← CORRECTLY PLACED
         )
 
     # ------------------------------------------------------------------
@@ -123,6 +127,7 @@ def match_image(image: Image.Image, db: Session, context_text: str | None = None
                     match_tier=tier,
                     match_type="clip",
                     details=f"CLIP cosine similarity: {similarity:.4f}",
+                    clip_similarity=round(similarity, 4), # ← CORRECTLY PLACED
                 )
 
     # ------------------------------------------------------------------

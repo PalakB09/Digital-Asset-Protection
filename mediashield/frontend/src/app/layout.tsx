@@ -1,93 +1,45 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { usePathname } from "next/navigation";
 import "./globals.css";
 
-// ─── Nav icon set ────────────────────────────────────────────────
-function Icon({ name, className = "", style }: { name: string; className?: string; style?: React.CSSProperties }) {
-  const props = {
-    width: 16,
-    height: 16,
-    viewBox: "0 0 24 24",
-    fill: "none",
-    strokeWidth: 1.75,
-    strokeLinecap: "round" as const,
-    strokeLinejoin: "round" as const,
-    className,
-    style,
-  };
+// ─── Theme-aware PNG Icon ─────────────────────────────────────────────────────
+function NavIcon({
+  name,
+  isActive,
+  theme,
+}: {
+  name: string;
+  isActive: boolean;
+  theme: "dark" | "light";
+}) {
+  const suffix = isActive
+    ? theme === "dark"
+      ? "Blue"
+      : "Black"
+    : theme === "dark"
+    ? "Grey1"
+    : "Grey2";
 
-  switch (name) {
-    case "dashboard":
-      return (
-        <svg {...props}>
-          <rect x="3" y="3" width="7" height="7" rx="1.5" stroke="currentColor" />
-          <rect x="14" y="3" width="7" height="7" rx="1.5" stroke="currentColor" />
-          <rect x="3" y="14" width="7" height="7" rx="1.5" stroke="currentColor" />
-          <rect x="14" y="14" width="7" height="7" rx="1.5" stroke="currentColor" />
-        </svg>
-      );
-    case "scan":
-      return (
-        <svg {...props}>
-          <circle cx="11" cy="11" r="7" stroke="currentColor" />
-          <line x1="16.5" y1="16.5" x2="21" y2="21" stroke="currentColor" />
-        </svg>
-      );
-    case "assets":
-      return (
-        <svg {...props}>
-          <rect x="3" y="3" width="18" height="18" rx="2" stroke="currentColor" />
-          <circle cx="8.5" cy="8.5" r="1.5" fill="currentColor" />
-          <path d="m21 15-5-5L5 21" stroke="currentColor" />
-        </svg>
-      );
-    case "monitoring":
-      return (
-        <svg {...props}>
-          <circle cx="12" cy="12" r="9" stroke="currentColor" />
-          <circle cx="12" cy="12" r="4" stroke="currentColor" />
-          <line x1="12" y1="3" x2="12" y2="8" stroke="currentColor" />
-        </svg>
-      );
-    case "violations":
-      return (
-        <svg {...props}>
-          <path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" stroke="currentColor" />
-          <line x1="12" y1="9" x2="12" y2="13" stroke="currentColor" />
-          <line x1="12" y1="17" x2="12.01" y2="17" stroke="currentColor" />
-        </svg>
-      );
-    case "propagation":
-      return (
-        <svg {...props}>
-          <circle cx="5" cy="12" r="2" stroke="currentColor" />
-          <circle cx="19" cy="5" r="2" stroke="currentColor" />
-          <circle cx="19" cy="19" r="2" stroke="currentColor" />
-          <line x1="7" y1="12" x2="17" y2="6" stroke="currentColor" />
-          <line x1="7" y1="12" x2="17" y2="18" stroke="currentColor" />
-        </svg>
-      );
-    case "actions":
-      return (
-        <svg {...props}>
-          <path d="m9 9-6 6 3 3 6-6" stroke="currentColor" />
-          <path d="m18 3 3 3-9 9-4-4" stroke="currentColor" />
-        </svg>
-      );
-    case "insights":
-      return (
-        <svg {...props}>
-          <line x1="18" y1="20" x2="18" y2="10" stroke="currentColor" />
-          <line x1="12" y1="20" x2="12" y2="4" stroke="currentColor" />
-          <line x1="6" y1="20" x2="6" y2="14" stroke="currentColor" />
-        </svg>
-      );
-    default:
-      return <svg {...props}><circle cx="12" cy="12" r="9" stroke="currentColor" /></svg>;
-  }
+  const src = `/${name}${suffix}.png`;
+
+  return (
+    <img
+      src={src}
+      alt={name}
+      width={18}
+      height={18}
+      style={{
+        width: 18,
+        height: 18,
+        objectFit: "contain",
+        flexShrink: 0,
+        transition: "opacity 0.15s ease",
+      }}
+    />
+  );
 }
 
 // ─── Nav items ────────────────────────────────────────────────────────────────
@@ -102,74 +54,175 @@ const navItems = [
   { href: "/insights",   label: "Insights",    icon: "insights"    },
 ];
 
-// ─── Sidebar — Zed-inspired dark ──────────────────────────────────────────────
+// ─── Sidebar ──────────────────────────────────────────────────────────────────
 function Sidebar() {
   const pathname = usePathname();
+  const [theme, setTheme] = useState<"dark" | "light">("dark");
+
+  useEffect(() => {
+    const stored = typeof window !== "undefined" ? localStorage.getItem("mediashield-theme") : null;
+    setTheme(stored === "light" ? "light" : "dark");
+
+    // Watch for theme changes
+    const observer = new MutationObserver(() => {
+      const current = document.documentElement.getAttribute("data-theme");
+      setTheme(current === "light" ? "light" : "dark");
+    });
+    observer.observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
+    return () => observer.disconnect();
+  }, []);
 
   return (
     <aside
-      className="fixed left-0 top-0 bottom-0 w-[220px] flex flex-col z-40"
       style={{
+        position: "fixed",
+        left: 0,
+        top: 0,
+        bottom: 0,
+        width: 224,
+        display: "flex",
+        flexDirection: "column",
+        zIndex: 40,
         background: "var(--bg-secondary)",
         borderRight: "1px solid var(--border-subtle)",
+        fontFamily: "'IBM Plex Mono', sans-serif",
       }}
     >
-      {/* Logo */}
-      <div className="h-[56px] flex items-center px-5 shrink-0" style={{ borderBottom: "1px solid var(--border-subtle)" }}>
-        <div className="flex items-center gap-3">
-          <div
-            className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0"
-            style={{ background: "var(--accent-soft)", border: "1px solid var(--accent-border)" }}
-          >
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--accent-primary)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
-            </svg>
-          </div>
-          <div>
-            <p className="text-[13px] font-semibold leading-tight" style={{ color: "var(--text-primary)", letterSpacing: "0.01em" }}>MediaShield</p>
-            <p className="text-[10px] leading-tight font-mono" style={{ color: "var(--text-muted)" }}>Asset Protection</p>
-          </div>
+      {/* ── Logo ── */}
+      <div
+        style={{
+          height: 60,
+          display: "flex",
+          alignItems: "center",
+          padding: "0 20px",
+          borderBottom: "1px solid var(--border-subtle)",
+          flexShrink: 0,
+          gap: 12,
+        }}
+      >
+        <div
+          style={{
+            width: 32,
+            height: 32,
+            borderRadius: 9,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            background: "var(--accent-soft)",
+            border: "1px solid var(--accent-border)",
+            flexShrink: 0,
+          }}
+        >
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#8ec5ff" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+          </svg>
+        </div>
+        <div style={{ minWidth: 0 }}>
+          <p style={{
+            fontSize: 15.5,
+            fontWeight: 700,
+            color: "var(--text-primary)",
+            letterSpacing: "0.02em",
+            lineHeight: 1.25,
+            fontFamily: "''IBM Plex Serif', monospace",
+            margin: 0,
+          }}>
+            MediaShield
+          </p>
+          <p style={{
+            fontSize: 10.5,
+            color: "var(--text-muted)",
+            fontFamily: "'IBM Plex Mono', monospace",
+            letterSpacing: "0.06em",
+            lineHeight: 1.3,
+            margin: 0,
+            marginTop: 1,
+          }}>
+            ASSET PROTECTION
+          </p>
         </div>
       </div>
 
-      {/* Navigation */}
-      <div className="flex-1 px-3 py-4 overflow-y-auto">
-        <p className="text-[10px] font-medium uppercase tracking-[0.12em] px-2 mb-3" style={{ color: "var(--text-muted)" }}>
+      {/* ── Nav ── */}
+      <div
+        style={{
+          flex: 1,
+          padding: "14px 10px",
+          overflowY: "auto",
+          display: "flex",
+          flexDirection: "column",
+          gap: 2,
+        }}
+      >
+        <p style={{
+          fontSize: 10,
+          fontWeight: 600,
+          letterSpacing: "0.14em",
+          textTransform: "uppercase",
+          color: "var(--text-muted)",
+          padding: "0 10px",
+          marginBottom: 8,
+          marginTop: 2,
+          fontFamily: "'IBM Plex Mono', monospace",
+        }}>
           Navigation
         </p>
-        <nav className="flex flex-col gap-0.5">
+
+        <nav style={{ display: "flex", flexDirection: "column", gap: 1 }}>
           {navItems.map((item) => {
-            const isActive = pathname === item.href || (item.href !== "/dashboard" && pathname.startsWith(item.href));
+            const isActive =
+              pathname === item.href ||
+              (item.href !== "/dashboard" && pathname.startsWith(item.href));
+
+            const activeColor = isActive
+                ? theme === "dark" ? "#8ec5ff" : "#111111"
+                : undefined;
+            const activeBg = isActive
+                ? theme === "dark" ? "rgba(142, 197, 255, 0.10)" : "rgba(0, 0, 0, 0.07)"
+                : "transparent";
+            const activeBorder = isActive
+                ? theme === "dark" ? "2px solid #8ec5ff" : "2px solid #111111"
+                : "2px solid transparent";
+
             return (
               <Link
                 key={item.href}
                 href={item.href}
-                className="relative flex items-center gap-2.5 h-9 px-3 rounded-[8px] text-[13px] font-medium transition-all select-none"
                 style={{
-                  color: isActive ? "var(--text-primary)" : "var(--text-muted)",
-                  background: isActive ? "color-mix(in srgb, var(--accent-primary) 18%, transparent)" : "transparent",
-                  borderLeft: isActive ? `2px solid var(--accent-primary)` : "2px solid transparent",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 10,
+                  height: 38,
+                  padding: "0 10px 0 12px",
+                  borderRadius: 8,
+                  fontSize: 15,
+                  fontWeight: isActive ? 600 : 450,
+                  letterSpacing: "0.01em",
+                  fontFamily: "'IBM Plex Sans', monospace",
+                  color: isActive ? activeColor : "var(--text-muted)",
+                  background: activeBg,
+                  borderLeft: activeBorder,
+                  textDecoration: "none",
+                  transition: "all 0.13s ease",
+                  cursor: "pointer",
+                  userSelect: "none",
                 }}
                 onMouseEnter={(e) => {
                   if (!isActive) {
-                    const el = e.currentTarget;
+                    const el = e.currentTarget as HTMLAnchorElement;
                     el.style.background = "var(--surface-hover)";
                     el.style.color = "var(--text-secondary)";
                   }
                 }}
                 onMouseLeave={(e) => {
                   if (!isActive) {
-                    const el = e.currentTarget;
+                    const el = e.currentTarget as HTMLAnchorElement;
                     el.style.background = "transparent";
                     el.style.color = "var(--text-muted)";
                   }
                 }}
               >
-                <Icon
-                  name={item.icon}
-                  className={isActive ? "" : ""}
-                  style={ {color: isActive ? "var(--accent-primary)" : "var(--text-muted)" } as React.CSSProperties}
-                />
+                <NavIcon name={item.icon} isActive={isActive} theme={theme} />
                 <span>{item.label}</span>
               </Link>
             );
@@ -177,21 +230,81 @@ function Sidebar() {
         </nav>
       </div>
 
-      {/* Footer */}
-      <div className="px-3 py-4 shrink-0" style={{ borderTop: "1px solid var(--border-subtle)" }}>
+      {/* ── Footer ── */}
+      <div
+        style={{
+          padding: "12px 10px",
+          borderTop: "1px solid var(--border-subtle)",
+          flexShrink: 0,
+        }}
+      >
         <div
-          className="flex items-center gap-2.5 px-3 py-2.5 rounded-lg cursor-pointer transition-all"
-          style={{ background: "rgba(255,255,255,0.03)", border: "1px solid var(--border-subtle)" }}
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 10,
+            padding: "9px 12px",
+            borderRadius: 9,
+            background: "rgba(255,255,255,0.03)",
+            border: "1px solid var(--border-subtle)",
+            cursor: "pointer",
+            transition: "background 0.13s ease",
+          }}
+          onMouseEnter={(e) => {
+            (e.currentTarget as HTMLDivElement).style.background = "rgba(255,255,255,0.055)";
+          }}
+          onMouseLeave={(e) => {
+            (e.currentTarget as HTMLDivElement).style.background = "rgba(255,255,255,0.03)";
+          }}
         >
           <div
-            className="w-7 h-7 rounded-lg flex items-center justify-center shrink-0"
-            style={{ background: "var(--accent-soft)" }}
+            style={{
+              width: 28,
+              height: 28,
+              borderRadius: 8,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              background: "rgba(142, 197, 255, 0.12)",
+              flexShrink: 0,
+            }}
           >
-            <span className="text-[10px] font-semibold" style={{ color: "var(--accent-primary)" }}>MS</span>
+            <span style={{
+              fontSize: 9.5,
+              fontWeight: 700,
+              color: "#8ec5ff",
+              fontFamily: "'IBM Plex Mono', monospace",
+              letterSpacing: "0.04em",
+            }}>
+              MS
+            </span>
           </div>
-          <div className="min-w-0">
-            <p className="text-[12px] font-medium truncate" style={{ color: "var(--text-primary)" }}>MediaShield</p>
-            <p className="text-[10px] font-mono truncate" style={{ color: "var(--text-muted)" }}>v1.0 · Active</p>
+          <div style={{ minWidth: 0 }}>
+            <p style={{
+              fontSize: 12,
+              fontWeight: 600,
+              color: "var(--text-primary)",
+              fontFamily: "'IBM Plex Mono', monospace",
+              margin: 0,
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              whiteSpace: "nowrap",
+            }}>
+              MediaShield
+            </p>
+            <p style={{
+              fontSize: 9.5,
+              color: "var(--text-muted)",
+              fontFamily: "'IBM Plex Sans'",
+              letterSpacing: "0.04em",
+              margin: 0,
+              marginTop: 1,
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              whiteSpace: "nowrap",
+            }}>
+              v1.0 · Active
+            </p>
           </div>
         </div>
       </div>
@@ -216,6 +329,10 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <title>MediaShield — Digital Asset Protection</title>
         <meta name="description" content="Detect, track, and enforce ownership of your media assets across the web." />
         <meta name="viewport" content="width=device-width, initial-scale=1" />
+        <link
+          href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&display=swap"
+          rel="stylesheet"
+        />
       </head>
       <body className="h-full antialiased">
         {isLandingPage ? (
@@ -223,7 +340,15 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         ) : (
           <>
             <Sidebar />
-            <div className="ml-[220px] min-h-screen flex flex-col" style={{ background: "var(--bg-primary)" }}>
+            <div
+              style={{
+                marginLeft: 224,
+                minHeight: "100vh",
+                display: "flex",
+                flexDirection: "column",
+                background: "var(--bg-primary)",
+              }}
+            >
               {children}
             </div>
           </>

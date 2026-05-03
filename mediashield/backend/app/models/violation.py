@@ -8,6 +8,9 @@ class Violation(Base):
     __tablename__ = "violations"
 
     id = Column(String, primary_key=True, default=lambda: str(uuid4()))
+    phash_distance = Column(Integer, nullable=True)
+    clip_similarity = Column(Float, nullable=True)
+    confidence_score = Column(Float, nullable=True)
     asset_id = Column(String, ForeignKey("assets.id"), nullable=False)
     source_url = Column(String, default="upload")
     platform = Column(String, default="unknown")

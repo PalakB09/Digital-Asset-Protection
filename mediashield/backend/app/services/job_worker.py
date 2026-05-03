@@ -275,6 +275,7 @@ async def _process_video_url_job(job: Job, stage_results: dict) -> dict:
                 processing_status="done",
             )
             db.add(violation)
+            db.flush()
             edge = PropagationEdge(
                 id=str(uuid4()),
                 source_asset_id=result.asset_id,
