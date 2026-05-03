@@ -5,6 +5,7 @@ MediaShield API — FastAPI application entry point.
 from contextlib import asynccontextmanager
 import asyncio
 import sys
+import os
 
 if sys.platform == "win32":
     asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
@@ -17,6 +18,18 @@ from app.routers import jobs as jobs_router
 from app.services.monitoring import monitoring_worker
 from app.services.job_worker import job_worker
 from app.services.log_config import setup_logging
+
+
+def _cors_origins() -> list[str]:
+    raw = (os.environ.get("CORS_ORIGINS", "") or "").strip()
+    if raw:
+        return [o.strip() for o in raw.split(",") if o.strip()]
+
+    frontend_url = (os.environ.get("FRONTEND_URL", "") or "").strip()
+    if frontend_url:
+        return [frontend_url]
+
+    return ["http://localhost:3000", "http://127.0.0.1:3000"]
 
 
 @asynccontextmanager
@@ -40,8 +53,8 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=False,
+    allow_origins=_cors_origins(),
+    allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
